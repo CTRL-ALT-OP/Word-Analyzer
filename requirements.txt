@@ -1,0 +1,15 @@
+# Core requirements for Word Analyzer
+
+# PDF processing
+PyPDF2>=3.0.0
+
+# Optional: DOCX support
+# python-docx>=0.8.11
+
+# Optional: Enhanced text processing
+# nltk>=3.8
+
+# Development tools (optional)
+# pytest>=7.0.0
+# black>=22.0.0
+# pylint>=2.0.0
