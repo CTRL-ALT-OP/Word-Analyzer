@@ -1,5 +1,4 @@
-/texts
-!/texts/placeholder.txt
+!texts/*.txt
 *
 !*.py
 !*.txt
