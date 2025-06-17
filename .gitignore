@@ -4,3 +4,5 @@
 !*.py
 !*.txt
 !*.md
+!Dict/*.exc
+!Dict
