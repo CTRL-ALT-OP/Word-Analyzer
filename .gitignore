@@ -1,2 +1,6 @@
 /texts
 !/texts/placeholder.txt
+*
+!*.py
+!*.txt
+!*.md
