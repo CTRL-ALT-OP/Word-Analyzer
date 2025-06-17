@@ -3,6 +3,13 @@
 # PDF processing
 PyPDF2>=3.0.0
 
+# AI/ML dependencies
+google-generativeai>=0.3.0
+
+# Visualization dependencies
+Pillow>=9.0.0
+matplotlib>=3.5.0
+
 # Optional: DOCX support
 # python-docx>=0.8.11
 
