@@ -1,5 +1,10 @@
+abandon
+abandoned
+abandoning
 abased
+abashed
 abated
+abating
 abbreviated
 abet
 abetted
@@ -8,6 +13,7 @@ abhor
 abhorred
 abhorring
 abide
+abiding
 abode
 abought
 abound
@@ -16,6 +22,8 @@ about-ship
 about-shipped
 about-shipping
 absconded
+absented
+absolve
 absolved
 absorbed
 abusing
@@ -24,33 +32,56 @@ abutted
 abutting
 aby
 abye
+accede
 accelerate
 accelerated
 accelerating
 accept
 accepted
+accepting
+accommodate
 accommodated
 accompanied
+accompanies
 accompany
 accompanying
+accomplish
+accomplishing
 accorded
+accost
+accosted
+accounted
 accoutred
 accredited
+accruing
+accumulate
+accumulating
 accurse
+accuse
+accused
+accusing
 acetified
 acetify
 ached
 acidified
 acidify
+acknowledge
 acknowledged
+acknowledges
 acknowledging
 acquaint
+acquainting
+acquired
+acquires
 acquit
 acquitted
 acquitting
+act
 acted
 acting
+acts
 actuated
+actuates
 ad-lib
 ad-libbed
 ad-libbing
@@ -345,6 +376,7 @@ attracted
 attracting
 attributed
 attributing
+aug
 augment
 augmented
 augmenting
@@ -802,6 +834,7 @@ buried
 buries
 burn
 burned
+burneth
 burning
 burnished
 burnt
@@ -863,6 +896,7 @@ canning
 cannot
 canopied
 canopy
+canst
 cap
 caparisoned
 capered
@@ -871,6 +905,7 @@ capping
 capsize
 capsized
 capsizing
+capt
 captivated
 capture
 captured
@@ -917,6 +952,7 @@ catnapping
 catted
 catting
 caught
+caus
 caused
 causes
 causing
@@ -1170,6 +1206,7 @@ combing
 combining
 come
 comes
+cometh
 comforted
 coming
 command
@@ -1198,6 +1235,7 @@ compare
 compared
 compares
 comparing
+compassioning
 compel
 compelled
 compelling
@@ -1461,6 +1499,7 @@ cribbing
 cried
 cries
 criminate
+crimpled
 crimsoned
 cripple
 criticise
@@ -1696,6 +1735,7 @@ deluged
 deluging
 demand
 demanded
+demeure
 demit
 demitted
 demitting
@@ -1806,6 +1846,7 @@ detect
 detected
 detecting
 deter
+deteriora
 deteriorate
 determine
 determining
@@ -1852,11 +1893,13 @@ dictates
 did
 diddle
 diddled
+diddles
 diddling
 didst
 die
 died
 dies
+diest
 dieth
 differ
 differed
@@ -2085,6 +2128,7 @@ dought
 dove
 dow
 download
+doz
 doze
 dozing
 drab
@@ -2511,6 +2555,7 @@ exercised
 exert
 exerted
 exerting
+exeunt
 exhales
 exhaust
 exhibit
@@ -2584,6 +2629,7 @@ faced
 facet
 facetted
 facetting
+facili
 facing
 fading
 fag
@@ -3213,6 +3259,7 @@ guzzle
 gyp
 gypped
 gypping
+ha
 habituated
 hack
 hacksaw
@@ -3287,6 +3334,7 @@ hauled
 hauling
 haunt
 haunted
+haunteth
 have
 have_a_feeling
 have_left
@@ -3300,6 +3348,7 @@ headed
 heaped
 hear
 heard
+hearest
 hearken
 hearkened
 hearkening
@@ -3528,6 +3577,7 @@ indicated
 indicates
 indicating
 indite
+inditing
 induce
 induced
 induces
@@ -3657,6 +3707,7 @@ intersperses
 interspersing
 interstratified
 interstratify
+intertangled
 intertwine
 intertwining
 interupted
@@ -3967,6 +4018,7 @@ lend
 lending
 lengthen
 lent
+lesen
 lessened
 let
 lettest
@@ -4024,6 +4076,7 @@ listening
 lit
 live
 lived
+liveth
 living
 loading
 loathe
@@ -4618,6 +4671,7 @@ overruling
 overrun
 overrunning
 oversaw
+overscored
 oversee
 overseen
 oversell
@@ -4936,6 +4990,7 @@ plucking
 plug
 plugged
 plugging
+plummed
 plumped
 plunder
 plunge
@@ -5547,6 +5602,7 @@ relying
 remade
 remain
 remained
+remaineth
 remains
 remake
 remanded
@@ -5730,6 +5786,7 @@ returning
 reunified
 reunify
 rev
+reve
 reveal
 revealed
 revealing
@@ -5856,6 +5913,7 @@ rubbing
 ruffle
 ruffling
 ruined
+ruleth
 rumbling
 ruminate
 ruminating
@@ -6240,6 +6298,7 @@ sip
 sipped
 sipping
 sit
+sitteth
 sitting
 situated
 sized
@@ -6470,6 +6529,7 @@ spattered
 spatting
 speak
 speakest
+speaketh
 speaking
 specified
 specify
@@ -7303,6 +7363,7 @@ trotting
 trowel
 trowelled
 trowelling
+trump
 trusted
 try
 trying
@@ -7379,6 +7440,7 @@ unclogging
 unclosing
 unclothe
 uncovered
+und
 undeceive
 underbid
 underbidding
@@ -7659,6 +7721,7 @@ vivify
 vociferate
 vociferated
 volunteered
+vot
 voted
 vouchsafed
 vow
@@ -7752,6 +7815,7 @@ wedded
 wedding
 wedged
 weed
+ween
 weep
 weeping
 weigh
@@ -7815,6 +7879,7 @@ whooping
 whop
 whopped
 whopping
+wid
 widened
 widening
 wield
@@ -7840,6 +7905,7 @@ wink
 winked
 winking
 winning
+wint
 winterfed
 winterfeed
 wipe
