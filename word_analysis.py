@@ -109,10 +109,9 @@ class WordAnalyzer:
         used_words = set()
 
         for pattern_element in pattern:
-            word_info = self._find_word_for_pattern(
+            if word_info := self._find_word_for_pattern(
                 pattern_element, word_counts, used_words
-            )
-            if word_info:
+            ):
                 result.append((pattern_element, word_info[0], word_info[1]))
                 used_words.add(word_info[0])
             else:
@@ -223,9 +222,7 @@ class WordAnalyzer:
             raise ValueError("Fingerprints must have the same length")
 
         matches = sum(
-            1
-            for i in range(len(fingerprint1))
-            if fingerprint1[i][1] == fingerprint2[i][1]
+            fingerprint1[i][1] == fingerprint2[i][1] for i in range(len(fingerprint1))
         )
 
         return matches / len(fingerprint1)

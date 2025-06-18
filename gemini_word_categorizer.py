@@ -186,12 +186,9 @@ Word to categorize: """
                         word = word.lower()
                     words.add(word)
 
-        # Filter out words that are already categorized
-        uncategorized_words = set()
-        for word in words:
-            if self.dict_manager.get_word_type(word) is None:
-                uncategorized_words.add(word)
-
+        uncategorized_words = {
+            word for word in words if self.dict_manager.get_word_type(word) is None
+        }
         print(
             f"Found {len(words)} total words, {len(uncategorized_words)} uncategorized"
         )
@@ -495,14 +492,12 @@ Word to categorize: """
             temp_counts["uncategorized"] = 0
 
             for word, category in categorizations.items():
-                if category != "uncategorized":
-                    # Only add if not already in dictionary
-                    if self.dict_manager.get_word_type(word) is None:
-                        self.dict_manager.add_word(word, category)
-                        temp_counts[category] += 1
-                else:
+                if category == "uncategorized":
                     temp_counts["uncategorized"] += 1
 
+                elif self.dict_manager.get_word_type(word) is None:
+                    self.dict_manager.add_word(word, category)
+                    temp_counts[category] += 1
             # Save only if we have new words
             if any(
                 count > 0
@@ -528,14 +523,12 @@ Word to categorize: """
         added_counts["uncategorized"] = 0
 
         for word, category in categorizations.items():
-            if category != "uncategorized":
-                # Only count as added if it wasn't already in the dictionary
-                if self.dict_manager.get_word_type(word) is None:
-                    self.dict_manager.add_word(word, category)
-                    added_counts[category] += 1
-            else:
+            if category == "uncategorized":
                 added_counts["uncategorized"] += 1
 
+            elif self.dict_manager.get_word_type(word) is None:
+                self.dict_manager.add_word(word, category)
+                added_counts[category] += 1
         return added_counts
 
     def process_pdf(

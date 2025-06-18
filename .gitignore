@@ -1,7 +1,9 @@
-!texts/*.txt
 *
-!*.py
-!*.txt
-!*.md
+!texts
+!tests
+!**/*.py
+!**/*.ini
+!**/*.txt
+!**/*.md
 !Dict/*.exc
 !Dict
