@@ -11,7 +11,8 @@ import time
 
 from word_analysis import WordAnalyzer
 from dictionary_manager import DictionaryManager
-from config import OUTPUT_CONFIG
+from config import OUTPUT_CONFIG, DICTIONARY_CONFIG
+from bubble_visualizer import BubbleVisualizer
 
 
 def parse_arguments():
@@ -29,6 +30,18 @@ Examples:
   
   # Analyze specific pages of a PDF
   python main.py --input book.pdf --pdf-pages 10 100 --author "Author Name"
+  
+  # Create a bubble chart visualization
+  python main.py --input text.txt --build-graph bubble_chart.png
+  
+  # Create bubble chart with legend
+  python main.py --input text.txt --build-graph chart.png --graph-legend legend.png
+  
+  # Create bubble chart excluding articles and pronouns
+  python main.py --input text.txt --build-graph chart.png --exclude-types art ppron dpron
+  
+  # List available word types for exclusion
+  python main.py --list-types
   
   # Compare two fingerprints
   python main.py --compare fingerprint1.txt fingerprint2.txt
@@ -99,6 +112,27 @@ Examples:
     output_group.add_argument(
         "--json", action="store_true", help="Output in JSON format"
     )
+    output_group.add_argument(
+        "--build-graph",
+        type=str,
+        help="Create bubble chart visualization and save to specified path",
+    )
+    output_group.add_argument(
+        "--graph-legend",
+        type=str,
+        help="Save legend for bubble chart to specified path",
+    )
+    output_group.add_argument(
+        "--exclude-types",
+        nargs="+",
+        type=str,
+        help="Exclude word types from bubble chart (e.g., art conj prep)",
+    )
+    output_group.add_argument(
+        "--list-types",
+        action="store_true",
+        help="List available word types for exclusion",
+    )
 
     # Comparison options
     compare_group = parser.add_argument_group("Comparison Options")
@@ -138,6 +172,38 @@ def main():
 
     # Initialize dictionary manager
     dict_manager = DictionaryManager(dictionary_path=args.dict_path)
+
+    # Handle list types option
+    if args.list_types:
+        word_types = BubbleVisualizer.get_available_word_types()
+        print("\nAvailable word types for exclusion:")
+        print("-" * 40)
+
+        # Word type descriptions
+        descriptions = {
+            "conj": "Conjunction",
+            "art": "Article",
+            "adj": "Adjective",
+            "adv": "Adverb",
+            "prep": "Preposition",
+            "noun": "Noun",
+            "verb": "Verb",
+            "dpron": "Demonstrative pronoun",
+            "indpron": "Indefinite pronoun",
+            "intpron": "Interrogative pronoun",
+            "opron": "Other pronoun",
+            "ppron": "Personal pronoun",
+            "refpron": "Reflexive pronoun",
+            "relpron": "Relative pronoun",
+            "spron": "Subject pronoun",
+        }
+
+        for word_type in word_types:
+            desc = descriptions.get(word_type, word_type.capitalize())
+            print(f"{word_type:10s}: {desc}")
+        print("-" * 40)
+        print(f"Usage: --exclude-types {' '.join(word_types[:3])}")
+        return
 
     # Handle dictionary operations
     if args.clean_dictionaries:
@@ -223,6 +289,31 @@ def main():
     if args.output:
         analyzer.save_fingerprint(args.output, fingerprint)
         print(f"\nFingerprint saved to: {args.output}")
+
+    # Handle bubble chart generation
+    if args.build_graph:
+        try:
+            visualizer = BubbleVisualizer()
+            exclude_types = (
+                args.exclude_types
+                if hasattr(args, "exclude_types") and args.exclude_types
+                else None
+            )
+            visualizer.create_bubble_chart(
+                word_counts,
+                dict_manager,
+                args.build_graph,
+                exclude_types=exclude_types,
+            )
+
+            # Create legend if specified
+            if args.graph_legend:
+                visualizer.create_legend(args.graph_legend, exclude_types=exclude_types)
+        except ImportError as e:
+            print(f"Error: {e}")
+            print("Install required packages: pip install Pillow matplotlib")
+        except Exception as e:
+            print(f"Error creating bubble chart: {e}")
 
     # Handle output
     if args.json:
