@@ -17,9 +17,6 @@ class BubbleVisualizer:
     WORD_TYPE_COLORS = {}
 
     def __init__(self, width: int = None, height: int = None):
-        if not PIL_AVAILABLE:
-            raise ImportError("PIL (Pillow) is required for image generation")
-
         self.width = width if width is not None else 3840  # Default 4K width
         self.height = height if height is not None else 2160  # Default 4K height
         self.bubbles = []  # Initialize empty bubbles list
