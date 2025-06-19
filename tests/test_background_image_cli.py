@@ -195,7 +195,7 @@ class TestBackgroundImageCLI:
         positioned_bubbles = []
         boundary_mask = None
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -256,7 +256,7 @@ class TestBackgroundImageCLI:
         """Test that bubbles placed cover more than 50% of their allotted boundary area."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -307,7 +307,7 @@ class TestBackgroundImageCLI:
         """Test that bubbles have correct color values when sampling from the image."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -596,7 +596,7 @@ class TestBackgroundImageCLI:
         """Test that bubbles are scaled appropriately based on available space."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 

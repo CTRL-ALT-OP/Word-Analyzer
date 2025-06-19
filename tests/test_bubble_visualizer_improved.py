@@ -120,7 +120,7 @@ class TestBubbleVisualizerSpaceUtilization:
         """Test that bubble visualizer achieves at least 50% space utilization with 4K canvas."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
             # Mock the actual image creation
@@ -168,7 +168,7 @@ class TestBubbleVisualizerSpaceUtilization:
         positioned_bubbles = []
         exclude_types = ["art", "conj", "prep"]  # Common words to exclude
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -225,7 +225,7 @@ class TestBubbleVisualizerBubbleCount:
         """Test that at least 500 bubbles are placed from the base dataset."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -260,7 +260,7 @@ class TestBubbleVisualizerBubbleCount:
         positioned_bubbles = []
         exclude_types = ["art", "conj", "prep"]
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -333,7 +333,7 @@ class TestBubbleVisualizerImageProperties:
         """Test that different word types use distinct colors."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -395,7 +395,7 @@ class TestBubbleVisualizerQualityAssurance:
         """Test that bubbles do not overlap with the base dataset at 4K."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -436,7 +436,7 @@ class TestBubbleVisualizerQualityAssurance:
         """Test that bubbles have varying sizes based on word frequency."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
@@ -503,7 +503,7 @@ class TestBubbleVisualizerQualityAssurance:
         """Test that important words are not skipped before the frequency cutoff."""
         positioned_bubbles = []
 
-        def capture_positioned_bubbles(bubbles, output_path):
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
             nonlocal positioned_bubbles
             positioned_bubbles = bubbles[:]
 
