@@ -23,6 +23,7 @@ DICTIONARY_CONFIG = {
         "refpron",  # Reflexive pronoun
         "relpron",  # Relative pronoun
         "spron",  # Subject pronoun
+        "pnoun",  # Proper noun
     ],
 }
 
