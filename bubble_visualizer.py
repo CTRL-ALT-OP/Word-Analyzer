@@ -47,7 +47,14 @@ class BubbleVisualizer:
         "unknown": "#BDC3C7",  # Gray - Unknown type
     }
 
-    def __init__(self, width: int = None, height: int = None):
+    def __init__(
+        self,
+        width: int = None,
+        height: int = None,
+        background_image_path: str = None,
+        use_boundaries: bool = True,
+        show_background: bool = False,
+    ):
         """Initialize the bubble visualizer."""
         if not PIL_AVAILABLE:
             raise ImportError(
@@ -58,6 +65,8 @@ class BubbleVisualizer:
         self.height = height or self.DEFAULT_HEIGHT
         self.bubbles = []  # List of (x, y, radius, word, color) tuples
 
+        self.boundary_mask = None
+
     def create_bubble_chart(
         self,
         word_counts: Counter,
@@ -65,6 +74,7 @@ class BubbleVisualizer:
         output_path: str,
         min_bubble_size: int = 2,
         exclude_types: Optional[List[str]] = None,
+        use_image_colors: bool = False,
     ) -> None:
         """
         Create a bubble chart from word frequency data.
@@ -108,6 +118,9 @@ class BubbleVisualizer:
         print(
             f"Generated {len(positioned_bubbles)} bubbles from {len(word_counts)} words{excluded_info}"
         )
+
+    def save_debug_images(self, output_path: str):
+        pass
 
     def _filter_small_words(self, word_counts: Counter, min_size: int) -> Counter:
         """

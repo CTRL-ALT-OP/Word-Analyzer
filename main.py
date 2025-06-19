@@ -40,6 +40,21 @@ Examples:
   # Create bubble chart excluding articles and pronouns
   python main.py --input text.txt --build-graph chart.png --exclude-types art ppron dpron
   
+  # Create image-based bubble chart (bubbles within portrait boundaries)
+  python main.py --input text.txt --build-graph portrait_chart.png --background-image portrait.jpg
+  
+  # Create image-based bubble chart with colors sampled from image
+  python main.py --input text.txt --build-graph colored_chart.png --background-image portrait.jpg --use-image-colors
+  
+  # Use image colors without boundary constraints (full canvas placement)
+  python main.py --input text.txt --build-graph full_chart.png --background-image portrait.jpg --use-image-colors --no-boundaries
+  
+  # Use image colors with visible background (overlay effect)
+  python main.py --input text.txt --build-graph overlay_chart.png --background-image photo.jpg --use-image-colors --no-boundaries --show-background
+  
+  # Create image-based chart with custom canvas size and debug images
+  python main.py --input text.txt --build-graph chart.png --background-image photo.jpg --canvas-size 1920 1080 --debug-images debug/
+  
   # List available word types for exclusion
   python main.py --list-types
   
@@ -132,6 +147,41 @@ Examples:
         "--list-types",
         action="store_true",
         help="List available word types for exclusion",
+    )
+
+    # Image-based bubble chart options
+    image_group = parser.add_argument_group("Image-Based Bubble Chart Options")
+    image_group.add_argument(
+        "--background-image",
+        type=str,
+        help="Background image path for image-based bubble charts",
+    )
+    image_group.add_argument(
+        "--use-image-colors",
+        action="store_true",
+        help="Sample colors from background image instead of using word type colors",
+    )
+    image_group.add_argument(
+        "--no-boundaries",
+        action="store_true",
+        help="Use image for colors only, ignore boundaries (allows full canvas placement)",
+    )
+    image_group.add_argument(
+        "--show-background",
+        action="store_true",
+        help="Display background image in final chart (only works with --no-boundaries)",
+    )
+    image_group.add_argument(
+        "--canvas-size",
+        nargs=2,
+        type=int,
+        metavar=("WIDTH", "HEIGHT"),
+        help="Canvas size for bubble chart (default: 3840x2160 for 4K)",
+    )
+    image_group.add_argument(
+        "--debug-images",
+        type=str,
+        help="Directory to save debug images showing boundary detection",
     )
 
     # Comparison options
@@ -293,27 +343,128 @@ def main():
     # Handle bubble chart generation
     if args.build_graph:
         try:
-            visualizer = BubbleVisualizer()
+            # Check for image processing dependencies if background image is provided
+            if hasattr(args, "background_image") and args.background_image:
+                try:
+                    import cv2
+                    import numpy as np
+                except ImportError:
+                    print("Error: Image-based features require additional packages.")
+                    print("Install with: pip install opencv-python numpy")
+                    print(
+                        "Or install all image requirements: pip install -r requirements_image.txt"
+                    )
+                    return
+
+            # Determine canvas size
+            width, height = None, None
+            if hasattr(args, "canvas_size") and args.canvas_size:
+                width, height = args.canvas_size
+
+                # Create visualizer with optional background image
+            background_image_path = getattr(args, "background_image", None)
+            no_boundaries = getattr(args, "no_boundaries", False)
+            show_background = getattr(args, "show_background", False)
+
+            # Validate show_background usage
+            if show_background and not no_boundaries:
+                print(
+                    "Warning: --show-background only works with --no-boundaries. Background will not be shown."
+                )
+                show_background = False
+
+            visualizer = BubbleVisualizer(
+                width=width,
+                height=height,
+                background_image_path=background_image_path,
+                use_boundaries=(
+                    background_image_path is not None and not no_boundaries
+                ),
+                show_background=show_background,
+            )
+
+            # Save debug images if requested
+            if (
+                hasattr(args, "debug_images")
+                and args.debug_images
+                and background_image_path
+            ):
+                import os
+
+                os.makedirs(args.debug_images, exist_ok=True)
+                visualizer.save_debug_images(args.debug_images)
+                print(f"Debug images saved to: {args.debug_images}")
+
+            # Prepare exclude types
             exclude_types = (
                 args.exclude_types
                 if hasattr(args, "exclude_types") and args.exclude_types
                 else None
             )
+
+            # Determine if using image colors
+            use_image_colors = (
+                hasattr(args, "use_image_colors")
+                and args.use_image_colors
+                and background_image_path is not None
+            )
+
+            # Create bubble chart
+            print(f"Creating bubble chart with {len(word_counts)} unique words...")
             visualizer.create_bubble_chart(
                 word_counts,
                 dict_manager,
                 args.build_graph,
                 exclude_types=exclude_types,
+                use_image_colors=use_image_colors,
             )
 
             # Create legend if specified
             if args.graph_legend:
                 visualizer.create_legend(args.graph_legend, exclude_types=exclude_types)
+
+                # Print summary of what was created
+            if background_image_path:
+                color_info = (
+                    " with image colors"
+                    if use_image_colors
+                    else " with word type colors"
+                )
+                boundary_info = ""
+                if no_boundaries:
+                    if show_background:
+                        boundary_info = " (full canvas, background visible)"
+                    else:
+                        boundary_info = " (full canvas, no boundaries)"
+                else:
+                    boundary_info = " (within image boundaries)"
+
+                print(
+                    f"SUCCESS: Created image-based bubble chart{color_info}{boundary_info}"
+                )
+                if hasattr(args, "debug_images") and args.debug_images:
+                    print(f"DEBUG: Debug images available in: {args.debug_images}")
+            else:
+                print("SUCCESS: Created standard bubble chart")
+
         except ImportError as e:
             print(f"Error: {e}")
-            print("Install required packages: pip install Pillow matplotlib")
+            if hasattr(args, "background_image") and args.background_image:
+                print(
+                    "Install required packages: pip install opencv-python numpy pillow matplotlib"
+                )
+            else:
+                print("Install required packages: pip install Pillow matplotlib")
         except Exception as e:
             print(f"Error creating bubble chart: {e}")
+            if hasattr(args, "background_image") and args.background_image:
+                print(
+                    "TIP: Check that the background image file exists and is a supported format (JPG, PNG, etc.)"
+                )
+                if hasattr(args, "debug_images") and args.debug_images:
+                    print(
+                        f"DEBUG: Check debug images in '{args.debug_images}' to troubleshoot boundary detection"
+                    )
 
     # Handle output
     if args.json:

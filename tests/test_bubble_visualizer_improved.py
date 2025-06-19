@@ -22,41 +22,10 @@ from dictionary_manager import DictionaryManager
 from text_extractor import TextExtractorFactory
 from config import ANALYSIS_CONFIG
 
-
-class TestDataLoader:
-    """Helper class to load and process the placeholder.txt dataset."""
-
-    @staticmethod
-    def load_placeholder_dataset() -> Counter:
-        """Load placeholder.txt and process it through word counting algorithm."""
-        # Extract text from placeholder.txt
-        extractor = TextExtractorFactory.create_extractor("txt")
-        text_content = extractor.extract("texts/placeholder.txt")
-
-        # Process text using the same algorithm as specified by user
-        words = []
-
-        # Split into words
-        for line in text_content.split("\n"):
-            for word in line.split():
-                if ANALYSIS_CONFIG["strip_punctuation"]:
-                    # Remove punctuation
-                    word = word.strip(string.punctuation)
-
-                if word and word.isalpha():
-                    if not ANALYSIS_CONFIG["case_sensitive"]:
-                        word = word.lower()
-                    words.append(word)
-
-        return Counter(words)
-
-    @staticmethod
-    def get_real_dict_manager() -> DictionaryManager:
-        """Get a real dictionary manager with loaded dictionaries."""
-        dict_manager = DictionaryManager()
-        if not dict_manager.dictionaries:
-            dict_manager.load_dictionaries()
-        return dict_manager
+# Import TestDataLoader from tests directory
+tests_dir = os.path.dirname(__file__)
+sys.path.append(tests_dir)
+from test_data_loader import TestDataLoader
 
 
 @pytest.fixture
@@ -708,7 +677,7 @@ class TestBubbleVisualizerCLI:
             file_size > 100000
         ), f"Output file seems too small: {file_size} bytes (expected >100KB for 4K image)"
 
-        print(f"✓ CLI working correctly, output file: {file_size:,} bytes")
+        print(f"SUCCESS: CLI working correctly, output file: {file_size:,} bytes")
 
     def test_cli_with_exclude_types(self, temp_output_file):
         """Test CLI with exclude types functionality."""
@@ -756,18 +725,25 @@ class TestBubbleVisualizerCLI:
         # Check file size
         file_size = os.path.getsize(temp_output_file)
         print(
-            f"✓ CLI with exclusions working correctly, output file: {file_size:,} bytes"
+            f"SUCCESS: CLI with exclusions working correctly, output file: {file_size:,} bytes"
         )
 
     def test_cli_list_types(self):
         """Test CLI --list-types functionality."""
         cmd = [sys.executable, "main.py", "--list-types"]
 
+        # Set environment to handle unicode characters properly
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",  # Replace problematic characters
             cwd=os.path.dirname(os.path.dirname(__file__)),
+            env=env,
         )
 
         print(f"\nCLI List Types Test Results:")

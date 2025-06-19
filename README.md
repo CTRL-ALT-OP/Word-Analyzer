@@ -10,11 +10,22 @@ A refactored and generalized version of the word analyzer that creates linguisti
 - **Dictionary Management**: Comprehensive tools for word classification
 - **Fingerprint Generation**: Create unique linguistic patterns from text
 - **Command-Line Interface**: Full CLI support with various options
+- **🆕 Image-Based Bubble Charts**: Create bubble visualizations within image boundaries
+- **🆕 Color Sampling**: Sample colors from background images for natural integration
+- **🆕 Advanced Background Removal**: Automatic boundary detection for portraits and objects
 
 ## Installation
 
 ```bash
 # Basic requirements
+pip install -r requirements.txt
+
+# For image-based bubble charts (optional)
+pip install -r requirements_image.txt
+# OR manually install:
+pip install opencv-python numpy
+
+# Individual components
 pip install PyPDF2  # For PDF support
 pip install python-docx  # For DOCX support (optional)
 ```
@@ -49,6 +60,18 @@ python main.py --input text.txt --pattern "noun verb adj" --author "Author Name"
 
 # Analyze specific PDF pages
 python main.py --input book.pdf --pdf-pages 10 100 --author "Author Name"
+
+# Create bubble chart visualization
+python main.py --input text.txt --build-graph bubble_chart.png
+
+# Image-based bubble chart (NEW!)
+python main.py --input text.txt --build-graph portrait_chart.png --background-image portrait.jpg
+
+# Image-based chart with color sampling (NEW!)
+python main.py --input text.txt --build-graph colored_chart.png --background-image photo.jpg --use-image-colors
+
+# Custom canvas size and debug images (NEW!)
+python main.py --input text.txt --build-graph chart.png --background-image image.jpg --canvas-size 1920 1080 --debug-images debug/
 
 # Show dictionary statistics
 python main.py --dict-stats
@@ -109,9 +132,44 @@ Available prefixes:
 - **`word_analyzer.py`**: Main analyzer class
 - **`dictionary_manager.py`**: Handles word dictionaries and classification
 - **`text_extractor.py`**: Text extraction from various formats
+- **`bubble_visualizer.py`**: 🆕 Bubble chart generation with image boundary support
 - **`config.py`**: Configuration settings
 - **`main.py`**: CLI interface and example usage
 - **`dictionary_cleaner.py`**: Dictionary maintenance utilities
+
+## Image-Based Bubble Charts 🆕
+
+Create stunning bubble visualizations that conform to image boundaries:
+
+### Basic Image-Based Chart
+```bash
+python main.py --input yourtext.txt --build-graph output.png --background-image portrait.jpg
+```
+
+### With Color Sampling
+```bash
+python main.py --input yourtext.txt --build-graph output.png --background-image portrait.jpg --use-image-colors
+```
+
+### Available Options
+- `--background-image PATH`: Background image for boundary detection
+- `--use-image-colors`: Sample colors from image instead of word types
+- `--canvas-size WIDTH HEIGHT`: Custom canvas dimensions
+- `--debug-images DIR`: Save debug images showing boundary detection
+- `--exclude-types TYPE1 TYPE2`: Exclude word types for cleaner results
+
+### Features
+- **Smart Background Removal**: Uses GrabCut algorithm for automatic boundary detection
+- **Aspect Ratio Preservation**: Images scaled without distortion
+- **Color Sampling**: Natural color integration from background images
+- **Performance Optimized**: Cached positioning for fast placement
+- **Debug Support**: Visual debugging of boundary detection process
+
+### Best Practices
+- Use high-contrast images with clear subjects
+- Portrait photos work exceptionally well
+- Consider excluding common words (`art`, `prep`, `conj`) for cleaner results
+- Check debug images to understand boundary detection quality
 
 ## Advanced Usage
 

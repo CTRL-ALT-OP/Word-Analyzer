@@ -10,6 +10,10 @@ google-generativeai>=0.3.0
 Pillow>=9.0.0
 matplotlib>=3.5.0
 
+# Image-based bubble visualization (required for new CLI features)
+opencv-python>=4.5.0
+numpy>=1.21.0
+
 # Optional: DOCX support
 # python-docx>=0.8.11
 
