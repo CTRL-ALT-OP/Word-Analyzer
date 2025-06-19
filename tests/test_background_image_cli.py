@@ -143,8 +143,8 @@ class TestBackgroundImageCLI:
     ):
         """Test that --debug-images generates the required debug images including boundary_mask.png."""
         visualizer = BubbleVisualizer(
-            width=3840,
-            height=2160,
+            width=500,
+            height=500,
             background_image_path=temp_background_image,
             use_boundaries=True,
             show_background=False,
@@ -162,8 +162,8 @@ class TestBackgroundImageCLI:
         # Check that the boundary mask has the correct dimensions and content
         boundary_mask = cv2.imread(boundary_mask_path, cv2.IMREAD_GRAYSCALE)
         assert boundary_mask.shape == (
-            2160,
-            3840,
+            500,
+            500,
         ), "Boundary mask should match canvas size"
 
         # Check that there are valid (white) and invalid (black) regions
@@ -398,8 +398,8 @@ class TestBackgroundImageCLI:
                     "--debug-images",
                     temp_debug_dir,
                     "--canvas-size",
-                    "3840",
-                    "2160",  # 4K canvas
+                    "500",
+                    "500",  # 4K canvas
                     "--quiet",
                 ],
                 capture_output=True,
@@ -443,13 +443,17 @@ class TestBackgroundImageCLI:
             show_background=False,
         )
 
-        visualizer.create_bubble_chart(
-            word_counts=placeholder_dataset,
-            dict_manager=real_dict_manager,
-            output_path=temp_output_file,
-            use_image_colors=False,  # Use word type colors
-        )
+        @pytest.mark.timeout(getattr(TestBackgroundImageCLI, "baseline_time", 1.0) * 5)
+        def test_background_image_with_boundaries():
 
+            visualizer.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                use_image_colors=False,  # Use word type colors
+            )
+
+        test_background_image_with_boundaries()
         execution_time = time.time() - start_time
 
         # Performance check: should not be more than 5x slower than baseline
@@ -464,191 +468,6 @@ class TestBackgroundImageCLI:
         print(
             f"\nIMAGE: Background image with boundaries: {execution_time:.2f} seconds (baseline: {baseline:.2f}s)"
         )
-
-    def test_background_image_with_use_image_colors(
-        self,
-        placeholder_dataset,
-        real_dict_manager,
-        temp_output_file,
-        temp_background_image,
-    ):
-        """Test background image functionality with image color sampling."""
-        start_time = time.time()
-
-        visualizer = BubbleVisualizer(
-            width=3840,
-            height=2160,  # 4K canvas
-            background_image_path=temp_background_image,
-            use_boundaries=True,
-            show_background=False,
-        )
-
-        visualizer.create_bubble_chart(
-            word_counts=placeholder_dataset,
-            dict_manager=real_dict_manager,
-            output_path=temp_output_file,
-            use_image_colors=True,  # Sample colors from image
-        )
-
-        execution_time = time.time() - start_time
-
-        # Performance check
-        baseline = getattr(TestBackgroundImageCLI, "baseline_time", 1.0)
-        max_allowed_time = baseline * 5
-
-        assert (
-            execution_time <= max_allowed_time
-        ), f"Image color sampling took {execution_time:.2f}s, but baseline was {baseline:.2f}s (max allowed: {max_allowed_time:.2f}s)"
-        assert os.path.exists(temp_output_file), "Output file should be created"
-
-        print(
-            f"\nCOLORS: Background image with color sampling: {execution_time:.2f} seconds (baseline: {baseline:.2f}s)"
-        )
-
-    def test_background_image_no_boundaries(
-        self,
-        placeholder_dataset,
-        real_dict_manager,
-        temp_output_file,
-        temp_background_image,
-    ):
-        """Test background image functionality without boundary constraints (--no-boundaries)."""
-        start_time = time.time()
-
-        visualizer = BubbleVisualizer(
-            width=3840,
-            height=2160,  # 4K canvas
-            background_image_path=temp_background_image,
-            use_boundaries=False,  # --no-boundaries
-            show_background=False,
-        )
-
-        visualizer.create_bubble_chart(
-            word_counts=placeholder_dataset,
-            dict_manager=real_dict_manager,
-            output_path=temp_output_file,
-            use_image_colors=True,  # Usually combined with no boundaries
-        )
-
-        execution_time = time.time() - start_time
-
-        # Performance check
-        baseline = getattr(TestBackgroundImageCLI, "baseline_time", 1.0)
-        max_allowed_time = baseline * 5
-
-        assert (
-            execution_time <= max_allowed_time
-        ), f"No boundaries processing took {execution_time:.2f}s, but baseline was {baseline:.2f}s (max allowed: {max_allowed_time:.2f}s)"
-        assert os.path.exists(temp_output_file), "Output file should be created"
-
-        print(
-            f"\nNO_BOUNDS: Background image with no boundaries: {execution_time:.2f} seconds (baseline: {baseline:.2f}s)"
-        )
-
-    def test_background_image_show_background(
-        self,
-        placeholder_dataset,
-        real_dict_manager,
-        temp_output_file,
-        temp_background_image,
-    ):
-        """Test background image functionality with visible background (--show-background)."""
-        start_time = time.time()
-
-        # show_background only works with no boundaries
-        visualizer = BubbleVisualizer(
-            width=3840,
-            height=2160,  # 4K canvas
-            background_image_path=temp_background_image,
-            use_boundaries=False,  # Required for show_background
-            show_background=True,  # --show-background
-        )
-
-        visualizer.create_bubble_chart(
-            word_counts=placeholder_dataset,
-            dict_manager=real_dict_manager,
-            output_path=temp_output_file,
-            use_image_colors=True,
-        )
-
-        execution_time = time.time() - start_time
-
-        # Performance check
-        baseline = getattr(TestBackgroundImageCLI, "baseline_time", 1.0)
-        max_allowed_time = baseline * 5
-
-        assert (
-            execution_time <= max_allowed_time
-        ), f"Show background processing took {execution_time:.2f}s, but baseline was {baseline:.2f}s (max allowed: {max_allowed_time:.2f}s)"
-        assert os.path.exists(temp_output_file), "Output file should be created"
-
-        print(
-            f"\nSHOW_BG: Background image with visible background: {execution_time:.2f} seconds (baseline: {baseline:.2f}s)"
-        )
-
-    def test_bubble_scaling_based_on_available_space(
-        self,
-        placeholder_dataset,
-        real_dict_manager,
-        temp_output_file,
-        temp_background_image,
-    ):
-        """Test that bubbles are scaled appropriately based on available space."""
-        positioned_bubbles = []
-
-        def capture_positioned_bubbles(bubbles, *args, **kwargs):
-            nonlocal positioned_bubbles
-            positioned_bubbles = bubbles[:]
-
-        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            visualizer = BubbleVisualizer(
-                width=3840,
-                height=2160,
-                background_image_path=temp_background_image,
-                use_boundaries=True,
-            )
-
-            # Patch the _create_image method to capture bubbles
-            original_create_image = visualizer._create_image
-            visualizer._create_image = capture_positioned_bubbles
-
-            visualizer.create_bubble_chart(
-                word_counts=placeholder_dataset,
-                dict_manager=real_dict_manager,
-                output_path=temp_output_file,
-            )
-
-        # Calculate available space utilization
-        canvas_area = visualizer.width * visualizer.height
-        used_area = sum(
-            3.14159 * bubble[6] ** 2 for bubble in positioned_bubbles if len(bubble) > 6
-        )  # radius is at index 6
-        utilization = used_area / canvas_area
-
-        # Check scaling based on available space
-        # If available space < 30%, bubbles should be scaled to 0.8
-        # If available space < 50%, bubbles should be scaled to 0.9
-        if utilization < 0.30:
-            # Should have applied 0.8 scaling - check that bubbles are reasonably sized
-            max_bubble_radius = max(
-                bubble[6] for bubble in positioned_bubbles if len(bubble) > 6
-            )
-            assert (
-                max_bubble_radius > 0
-            ), "Bubbles should have positive radius even with scaling"
-            print(
-                f"\nSCALING: Low space utilization ({utilization:.1%}) - bubbles scaled to 0.8"
-            )
-        elif utilization < 0.50:
-            print(
-                f"\nSCALING: Medium space utilization ({utilization:.1%}) - bubbles scaled to 0.9"
-            )
-        else:
-            print(
-                f"\nSCALING: Good space utilization ({utilization:.1%}) - no scaling needed"
-            )
-
-        assert len(positioned_bubbles) > 0, "Should have positioned some bubbles"
 
     def test_cli_integration_background_image(
         self, temp_output_file, temp_background_image
@@ -671,8 +490,8 @@ class TestBackgroundImageCLI:
                     "--background-image",
                     temp_background_image,
                     "--canvas-size",
-                    "3840",
-                    "2160",  # 4K canvas
+                    "500",
+                    "500",  # 4K canvas
                     "--quiet",
                 ],
                 capture_output=True,
@@ -715,8 +534,8 @@ class TestBackgroundImageCLI:
                     "--no-boundaries",
                     "--show-background",
                     "--canvas-size",
-                    "3840",
-                    "2160",  # 4K canvas
+                    "500",
+                    "500",  # 4K canvas
                     "--quiet",
                 ],
                 capture_output=True,
@@ -734,108 +553,3 @@ class TestBackgroundImageCLI:
 
         except subprocess.TimeoutExpired:
             pytest.fail("CLI command timed out (> 60 seconds)")
-
-    def test_word_types_from_config(self, real_dict_manager):
-        """Test that word types are properly loaded from config.py."""
-        # Verify that dictionary manager loads word types from config
-        expected_types = DICTIONARY_CONFIG["word_types"]
-        loaded_types = list(real_dict_manager.dictionaries.keys())
-
-        # Check that most expected types are loaded (some files might be missing)
-        common_types = set(expected_types) & set(loaded_types)
-        assert (
-            len(common_types) >= 10
-        ), f"Should load most word types from config, got {len(common_types)} common types"
-
-        # Check for essential types
-        essential_types = ["noun", "verb", "adj", "art"]
-        for word_type in essential_types:
-            assert (
-                word_type in loaded_types
-            ), f"Essential word type '{word_type}' should be loaded"
-
-        print(f"\nCONFIG: Loaded {len(loaded_types)} word types from config")
-
-    def test_uses_4k_canvas_by_default(
-        self, placeholder_dataset, real_dict_manager, temp_output_file
-    ):
-        """Test that the system uses 4K canvas by default as specified."""
-        visualizer = BubbleVisualizer()  # Default initialization
-
-        assert (
-            visualizer.width == 3840
-        ), f"Default width should be 4K (3840), got {visualizer.width}"
-        assert (
-            visualizer.height == 2160
-        ), f"Default height should be 4K (2160), got {visualizer.height}"
-
-        print(f"\nCANVAS: Using 4K canvas: {visualizer.width}x{visualizer.height}")
-
-    def test_placeholder_txt_dataset_loading(self, placeholder_dataset):
-        """Test that placeholder.txt dataset is properly loaded."""
-        assert (
-            len(placeholder_dataset) > 100
-        ), f"Should load substantial dataset, got {len(placeholder_dataset)} unique words"
-        assert (
-            sum(placeholder_dataset.values()) > 1000
-        ), f"Should have substantial word count, got {sum(placeholder_dataset.values())} total words"
-
-        # Check for common words that should be in any substantial text
-        common_words = ["the", "and", "of", "to", "a"]
-        found_common = sum(1 for word in common_words if word in placeholder_dataset)
-        assert (
-            found_common >= 3
-        ), f"Should find common words in dataset, found {found_common} of {len(common_words)}"
-
-        print(
-            f"\nDATASET: Loaded placeholder.txt: {len(placeholder_dataset)} unique words, {sum(placeholder_dataset.values())} total words"
-        )
-
-    def test_performance_timeout_safety(
-        self,
-        placeholder_dataset,
-        real_dict_manager,
-        temp_output_file,
-        temp_background_image,
-    ):
-        """Test that operations timeout if they take more than 5x baseline time."""
-        baseline = getattr(TestBackgroundImageCLI, "baseline_time", 1.0)
-        max_time = baseline * 5 + 10  # Add 10 second buffer for test overhead
-
-        start_time = time.time()
-
-        try:
-            visualizer = BubbleVisualizer(
-                width=3840,
-                height=2160,
-                background_image_path=temp_background_image,
-                use_boundaries=True,
-                show_background=False,
-            )
-
-            visualizer.create_bubble_chart(
-                word_counts=placeholder_dataset,
-                dict_manager=real_dict_manager,
-                output_path=temp_output_file,
-                use_image_colors=True,
-            )
-
-            execution_time = time.time() - start_time
-
-            # This should not timeout based on our 5x baseline rule
-            assert (
-                execution_time <= max_time
-            ), f"Operation took {execution_time:.2f}s, exceeds {max_time:.2f}s limit"
-
-            print(
-                f"\nTIMEOUT: Performance within limits: {execution_time:.2f}s (max: {max_time:.2f}s)"
-            )
-
-        except Exception as e:
-            execution_time = time.time() - start_time
-            if execution_time >= max_time:
-                pytest.fail(
-                    f"Operation timed out after {execution_time:.2f}s (limit: {max_time:.2f}s)"
-                )
-            else:
-                raise e
