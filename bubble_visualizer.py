@@ -1,10 +1,12 @@
 """
 Bubble Chart Visualizer for Word Analysis
 Creates bubble charts with words sized by frequency and colored by word type.
+Now supports image-based boundaries and color sampling.
 """
 
 import math
 import random
+import numpy as np
 from typing import Dict, List, Tuple, Counter, Optional
 from collections import defaultdict
 
@@ -16,11 +18,18 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
+try:
+    import cv2
+
+    OPENCV_AVAILABLE = True
+except ImportError:
+    OPENCV_AVAILABLE = False
+
 from config import DICTIONARY_CONFIG
 
 
 class BubbleVisualizer:
-    """Creates bubble chart visualizations of word frequency data."""
+    """Creates bubble chart visualizations of word frequency data with optional image boundaries."""
 
     # 4K dimensions (standard)
     DEFAULT_WIDTH = 3840
@@ -55,17 +64,321 @@ class BubbleVisualizer:
         use_boundaries: bool = True,
         show_background: bool = False,
     ):
-        """Initialize the bubble visualizer."""
+        """Initialize the bubble visualizer with optional background image."""
         if not PIL_AVAILABLE:
             raise ImportError(
                 "PIL (Pillow) is required for bubble visualization. Install with: pip install Pillow matplotlib"
+            )
+
+        if background_image_path and not OPENCV_AVAILABLE:
+            raise ImportError(
+                "OpenCV is required for image processing features. Install with: pip install opencv-python"
             )
 
         self.width = width or self.DEFAULT_WIDTH
         self.height = height or self.DEFAULT_HEIGHT
         self.bubbles = []  # List of (x, y, radius, word, color) tuples
 
+        # Image processing attributes
+        self.background_image_path = background_image_path
+        self.background_image = None
+        self.processed_image = None
         self.boundary_mask = None
+        self.valid_positions = None
+        self.use_boundaries = (
+            use_boundaries  # Whether to use image boundaries for placement
+        )
+        self.show_background = (
+            show_background  # Whether to display background image in final chart
+        )
+
+        # Performance optimization: cache valid position coordinates
+        self._valid_coords_cache = None
+
+        # Process image if provided
+        if background_image_path:
+            self._process_background_image()
+
+    def _process_background_image(self) -> None:
+        """Process the background image to create boundaries and prepare for color sampling."""
+        if not self.background_image_path:
+            return
+
+        print(f"Processing background image: {self.background_image_path}")
+
+        # Load image
+        try:
+            original_image = cv2.imread(self.background_image_path)
+            if original_image is None:
+                raise ValueError(f"Could not load image: {self.background_image_path}")
+        except Exception as e:
+            print(f"Error loading image: {e}")
+            return
+
+        # Remove background from original high-resolution image (better quality)
+        print("Processing background removal on original image...")
+        if self.use_boundaries:
+            self._remove_background_from_original(original_image)
+        else:
+            self.processed_image = original_image
+            self.boundary_mask = None
+            self.valid_positions = None
+            self._valid_coords_cache = None
+            print("Image loaded for color sampling only - boundaries ignored")
+
+        # Now resize both the processed image and boundary mask to canvas size
+        self.background_image = self._resize_image_preserve_aspect(self.processed_image)
+
+        if self.use_boundaries:
+            self.boundary_mask = self._resize_mask_preserve_aspect(
+                self.boundary_mask, original_image.shape[:2]
+            )
+            # Create valid position mask for bubble placement
+            self._create_valid_positions_mask()
+        else:
+            # Not using boundaries - set to None to allow full canvas placement
+            self.boundary_mask = None
+            self.valid_positions = None
+            self._valid_coords_cache = None
+            print("Image loaded for color sampling only - boundaries ignored")
+
+        # Update processed image reference
+        self.processed_image = self.background_image
+
+        print("Background image processing complete")
+
+    def _remove_background_from_original(self, original_image) -> None:
+        """Remove background from the original high-resolution image for better quality."""
+        print("Removing background...")
+
+        # Method 1: GrabCut algorithm (works well for portraits/objects)
+        mask = np.zeros(original_image.shape[:2], np.uint8)
+        bgd_model = np.zeros((1, 65), np.float64)
+        fgd_model = np.zeros((1, 65), np.float64)
+
+        # Define rectangle around the presumed foreground (center 80% of image)
+        height, width = original_image.shape[:2]
+        rect = (
+            int(width * 0.1),
+            int(height * 0.1),
+            int(width * 0.8),
+            int(height * 0.8),
+        )
+
+        try:
+            cv2.grabCut(
+                original_image,
+                mask,
+                rect,
+                bgd_model,
+                fgd_model,
+                5,
+                cv2.GC_INIT_WITH_RECT,
+            )
+
+            # Create binary mask
+            mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype("uint8")
+
+            # Apply morphological operations to clean up the mask
+            kernel = np.ones((3, 3), np.uint8)
+            mask2 = cv2.morphologyEx(mask2, cv2.MORPH_CLOSE, kernel)
+            mask2 = cv2.morphologyEx(mask2, cv2.MORPH_OPEN, kernel)
+
+            # Apply Gaussian blur to smooth edges
+            mask2 = cv2.GaussianBlur(mask2, (5, 5), 0)
+
+            self.boundary_mask = mask2
+
+            # Create processed image (for color sampling)
+            self.processed_image = original_image.copy()
+
+        except Exception as e:
+            print(f"GrabCut failed: {e}, trying alternative method...")
+            self._remove_background_alternative_original(original_image)
+
+    def _remove_background_alternative_original(self, original_image) -> None:
+        """Alternative background removal using edge detection and contours on original image."""
+        print("Using alternative background removal method...")
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
+
+        # Apply Gaussian blur
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # Use adaptive threshold to create binary image
+        binary = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+
+        # Find contours
+        contours, _ = cv2.findContours(
+            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        # Create mask from largest contour (assumed to be main subject)
+        if contours:
+            largest_contour = max(contours, key=cv2.contourArea)
+            mask = np.zeros(gray.shape, np.uint8)
+            cv2.fillPoly(mask, [largest_contour], 255)
+
+            # Normalize to 0-1 range
+            self.boundary_mask = mask.astype("uint8") // 255
+        else:
+            # Fallback: use center region
+            mask = np.zeros(gray.shape, np.uint8)
+            h, w = mask.shape
+            cv2.ellipse(mask, (w // 2, h // 2), (w // 3, h // 2), 0, 0, 360, 1, -1)
+            self.boundary_mask = mask
+
+        self.processed_image = original_image.copy()
+
+    def _resize_mask_preserve_aspect(self, mask, original_shape):
+        """Resize boundary mask to match the resized image canvas."""
+        original_height, original_width = original_shape
+
+        # Calculate scale factor to fit within canvas (same as image resizing)
+        scale_w = self.width / original_width
+        scale_h = self.height / original_height
+        scale = min(scale_w, scale_h)
+
+        # Calculate new dimensions
+        new_width = int(original_width * scale)
+        new_height = int(original_height * scale)
+
+        # Resize mask
+        resized_mask = cv2.resize(mask.astype(np.uint8), (new_width, new_height))
+
+        # Create canvas and center the mask
+        canvas_mask = np.zeros((self.height, self.width), dtype=np.uint8)
+
+        # Calculate positioning to center the mask
+        start_y = (self.height - new_height) // 2
+        start_x = (self.width - new_width) // 2
+
+        # Place resized mask on canvas
+        canvas_mask[start_y : start_y + new_height, start_x : start_x + new_width] = (
+            resized_mask
+        )
+
+        return canvas_mask
+
+    def _create_valid_positions_mask(self) -> None:
+        """Create a mask of valid positions for bubble placement."""
+        if self.boundary_mask is None:
+            return
+
+        print("Creating valid positions mask...")
+
+        # Use boundary mask directly instead of heavy erosion
+        # This gives much better results and avoids the "wild" appearance
+        self.valid_positions = self.boundary_mask.astype(np.uint8)
+
+        # Cache valid coordinates for performance optimization
+        self._cache_valid_coordinates()
+
+        # Count valid pixels for statistics
+        valid_pixels = np.sum(self.valid_positions)
+        total_pixels = self.width * self.height
+        coverage = valid_pixels / total_pixels
+
+        print(
+            f"Valid placement area: {coverage:.1%} of total canvas ({valid_pixels:,} pixels)"
+        )
+
+        # Provide scaling guidance
+        if coverage < 0.2:
+            print(
+                "WARNING: Very constrained space - bubbles will be significantly smaller"
+            )
+        elif coverage < 0.4:
+            print("WARNING: Limited space - bubbles will be moderately smaller")
+        elif coverage < 0.6:
+            print("INFO: Moderate space - bubbles will be slightly smaller")
+        else:
+            print("GOOD: Good space available - minimal bubble size reduction")
+
+    def _cache_valid_coordinates(self) -> None:
+        """Cache valid coordinates for fast sampling - major performance optimization."""
+        if self.valid_positions is None:
+            self._valid_coords_cache = None
+            return
+
+        # Get all valid coordinates once and cache them
+        y_coords, x_coords = np.where(self.valid_positions > 0)
+        if len(x_coords) > 0:
+            # Store as list of tuples for fast random access
+            self._valid_coords_cache = list(zip(x_coords, y_coords))
+            print(
+                f"Cached {len(self._valid_coords_cache)} valid positions for fast sampling"
+            )
+        else:
+            self._valid_coords_cache = [(self.width // 2, self.height // 2)]  # Fallback
+            print("No valid positions found, using center as fallback")
+
+    def _is_position_valid(self, x: int, y: int, radius: int) -> bool:
+        """Check if a position is valid for bubble placement within image boundaries."""
+        if self.valid_positions is None:
+            # No image boundaries, use default bounds checking
+            return (
+                radius <= x < self.width - radius and radius <= y < self.height - radius
+            )
+
+        # Check bounds first (faster)
+        if (
+            x - radius < 0
+            or x + radius >= self.width
+            or y - radius < 0
+            or y + radius >= self.height
+        ):
+            return False
+
+            # For boundary mask, check key points around the circle
+        # Use even fewer samples during fast testing for better performance
+        num_samples = max(3, radius // 15)  # Very minimal sampling for speed
+
+        # Quick center check first - if center is invalid, position is definitely bad
+        if self.valid_positions[y, x] == 0:
+            return False
+
+        # Sample fewer points around perimeter
+        for i in range(num_samples):
+            angle = 2 * math.pi * i / num_samples
+            check_x = int(
+                x + radius * 0.7 * math.cos(angle)
+            )  # Check slightly inside radius (more lenient)
+            check_y = int(y + radius * 0.7 * math.sin(angle))
+
+            # Check if position is in valid area
+            if self.valid_positions[check_y, check_x] == 0:
+                return False
+
+        return True
+
+    def _sample_color_from_image(self, x: int, y: int, radius: int) -> str:
+        """Sample average color from the image at bubble location."""
+        if self.processed_image is None:
+            return self.WORD_TYPE_COLORS["unknown"]
+
+        # Create sampling area (smaller than bubble to avoid edges)
+        sample_radius = max(1, radius // 3)
+
+        # Get bounding box for sampling
+        x1 = max(0, x - sample_radius)
+        y1 = max(0, y - sample_radius)
+        x2 = min(self.width, x + sample_radius)
+        y2 = min(self.height, y + sample_radius)
+
+        # Extract region and calculate average color
+        region = self.processed_image[y1:y2, x1:x2]
+        if region.size > 0:
+            # Calculate average color (BGR to RGB)
+            avg_color = np.mean(region, axis=(0, 1))
+            # Convert BGR to RGB and to hex
+            r, g, b = int(avg_color[2]), int(avg_color[1]), int(avg_color[0])
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        return self.WORD_TYPE_COLORS["unknown"]
 
     def create_bubble_chart(
         self,
@@ -85,6 +398,7 @@ class BubbleVisualizer:
             output_path: Path to save the image
             min_bubble_size: Minimum bubble size in pixels
             exclude_types: List of word types to exclude (e.g., ["art", "conj", "prep"])
+            use_image_colors: If True and background image is provided, sample colors from image
         """
         # Filter out words from excluded types
         if exclude_types:
@@ -100,13 +414,16 @@ class BubbleVisualizer:
 
         # Get word types and colors
         word_data = self._prepare_word_data(filtered_words, dict_manager)
+        print("Word data prepared")
 
         # Calculate bubble sizes
+        print("Calculating bubble sizes...")
         bubble_data = self._calculate_bubble_sizes(word_data)
-
-        # Position bubbles (avoid overlap)
-        positioned_bubbles = self._position_bubbles(bubble_data)
-
+        print("Bubble size data calculated")
+        # Position bubbles (avoid overlap and respect image boundaries)
+        print("Positioning bubbles...")
+        positioned_bubbles = self._position_bubbles(bubble_data, use_image_colors)
+        print("Bubbles positioned")
         # Create and save image
         self._create_image(positioned_bubbles, output_path)
 
@@ -114,13 +431,15 @@ class BubbleVisualizer:
         if exclude_types:
             excluded_info = f" (excluded types: {', '.join(exclude_types)})"
 
+        image_info = ""
+        if self.background_image_path:
+            color_info = " with image colors" if use_image_colors else ""
+            image_info = f" using image boundaries{color_info}"
+
         print(f"Bubble chart saved to: {output_path}")
         print(
-            f"Generated {len(positioned_bubbles)} bubbles from {len(word_counts)} words{excluded_info}"
+            f"Generated {len(positioned_bubbles)} bubbles from {len(word_counts)} words{excluded_info}{image_info}"
         )
-
-    def save_debug_images(self, output_path: str):
-        pass
 
     def _filter_small_words(self, word_counts: Counter, min_size: int) -> Counter:
         """
@@ -151,19 +470,19 @@ class BubbleVisualizer:
         unique_frequencies = sorted(set(frequencies), reverse=True)
         test_cutoffs = list(unique_frequencies[:50])
         # Strategy 2: Test logarithmic intervals for broader coverage
-        for i in range(20):  # More granular steps
+        for i in range(100):  # More granular steps
             if max_freq > min_freq:
                 # Logarithmic spacing to cover the full range
                 log_min = math.log(min_freq) if min_freq > 0 else 0
                 log_max = math.log(max_freq)
-                log_cutoff = log_min + (log_max - log_min) * (1 - i / 19)
+                log_cutoff = log_min + (log_max - log_min) * (1 - i / 99)
                 cutoff = max(1, int(math.exp(log_cutoff)))
                 test_cutoffs.append(cutoff)
 
         # Strategy 3: Linear intervals in different ranges
-        test_cutoffs.extend(iter(range(1, min(21, max_freq + 1))))
+        test_cutoffs.extend(iter(range(1, min(40, max_freq + 1))))
         # Remove duplicates and sort
-        test_cutoffs = sorted(set(test_cutoffs), reverse=True)
+        test_cutoffs = sorted(set(test_cutoffs))
 
         print(f"  Testing {len(test_cutoffs)} different cutoff values...")
 
@@ -185,9 +504,13 @@ class BubbleVisualizer:
             placeable_count = self._test_placement_capacity(test_words)
             success_rate = placeable_count / len(test_words)
 
+            # For image boundaries, be more aggressive about accepting lower success rates
+            # since the boundary constraints naturally limit placement
+            min_success_rate = 0.60 if self.valid_positions is not None else 0.75
+
             # Calculate a score that balances word count and success rate
             # Prefer higher word counts, but require reasonable success rate
-            if success_rate >= 0.75:  # Minimum viable success rate
+            if success_rate >= min_success_rate:
                 score = (
                     placeable_count * success_rate
                 )  # Favor both high count and high success rate
@@ -199,11 +522,11 @@ class BubbleVisualizer:
                     best_count = placeable_count
                     best_ratio = score
                     print(
-                        f"  New best - Cutoff {test_cutoff}: {len(test_words)} words → {placeable_count} placeable ({success_rate:.1%}, score: {score:.1f})"
+                        f"  New best - Cutoff {test_cutoff}: {len(test_words)} words -> {placeable_count} placeable ({success_rate:.1%}, score: {score:.1f})"
                     )
             elif len(test_cutoffs) <= 20:  # Show details for smaller searches
                 print(
-                    f"  Cutoff {test_cutoff}: {len(test_words)} words → {placeable_count} placeable ({success_rate:.1%}) - below threshold"
+                    f"  Cutoff {test_cutoff}: {len(test_words)} words -> {placeable_count} placeable ({success_rate:.1%}) - below threshold ({min_success_rate:.0%})"
                 )
 
         # Use the best cutoff found
@@ -226,7 +549,11 @@ class BubbleVisualizer:
                 expanded_placeable = self._test_placement_capacity(test_expanded)
                 expanded_rate = expanded_placeable / len(test_expanded)
 
-                if expanded_rate >= 0.75:  # More aggressive - accept 75% success rate
+                # Use the same threshold as in main cutoff selection
+                post_process_threshold = (
+                    0.60 if self.valid_positions is not None else 0.75
+                )
+                if expanded_rate >= post_process_threshold:
                     final_words = test_expanded
                     print(
                         f"  Post-processing: expanded to {len(final_words)} words ({expanded_rate:.1%} estimated success)"
@@ -249,10 +576,10 @@ class BubbleVisualizer:
                             )
                             subset_rate = subset_placeable / len(test_subset)
 
-                            if subset_rate >= 0.75:
+                            if subset_rate >= post_process_threshold:
                                 final_words = test_subset
                                 print(
-                                    f"  Post-processing: added frequency {freq_level}+ words → {len(final_words)} total ({subset_rate:.1%} success)"
+                                    f"  Post-processing: added frequency {freq_level}+ words -> {len(final_words)} total ({subset_rate:.1%} success)"
                                 )
                                 break
 
@@ -278,20 +605,37 @@ class BubbleVisualizer:
         bubble_data = self._calculate_bubble_sizes_fast(word_data)
 
         # Test placement with faster algorithm
-        return self._test_placement_fast(bubble_data)
+        result = self._test_placement_fast(bubble_data)
+
+        return result
 
     def _calculate_bubble_sizes_fast(
         self, word_data: List[Tuple[str, int, str, str]]
     ) -> List[Tuple[str, int, int]]:
-        """Fast bubble size calculation for testing."""
+        """Fast bubble size calculation for testing - uses same scaling logic as main calculation."""
         if not word_data:
             return []
 
         max_count = max(count for _, count, _, _ in word_data)
         min_count = min(count for _, count, _, _ in word_data)
 
-        min_radius = 15
-        max_radius = min(400, min(self.width, self.height) // 6)
+        # Use same scaling logic as main bubble calculation
+        base_min_radius = 12
+        base_max_radius = min(400, min(self.width, self.height) // 6)
+
+        # Adjust for image boundaries if present
+        if self.valid_positions is not None:
+            valid_area_ratio = np.sum(self.valid_positions) / (self.width * self.height)
+
+            if valid_area_ratio < 0.3:
+                size_multiplier = 0.8
+            elif valid_area_ratio < 0.5:
+                size_multiplier = 0.9
+        else:
+            size_multiplier = 1.0
+
+        min_radius = max(8, int(base_min_radius * size_multiplier))
+        max_radius = int(base_max_radius * size_multiplier)
 
         bubble_data = []
         for word, count, _, _ in word_data:
@@ -324,35 +668,53 @@ class BubbleVisualizer:
         occupied_grid = [[False] * grid_width for _ in range(grid_height)]
 
         placed = 0
-        max_attempts = 100  # Much faster testing
+
+        # For image boundaries, be more aggressive with attempts and use better strategy
+        if self.valid_positions is not None:
+            max_attempts = 300  # Much more attempts for image boundaries
+            max_no_progress = 50  # Stop if we fail this many bubbles in a row
+        else:
+            max_attempts = 100
+            max_no_progress = 20
+
+        consecutive_failures = 0
 
         for word, count, radius in sorted_bubbles:
             # Find a position using grid
             found_position = False
 
             for attempt in range(max_attempts):
-                if attempt < max_attempts // 2:
-                    # Try systematic grid positions first
-                    grid_x = (
-                        attempt * 7
-                    ) % grid_width  # Prime number for good distribution
-                    grid_y = (attempt * 11) % grid_height
+                # For image boundaries, prioritize valid coordinate sampling
+                if (
+                    self.valid_positions is not None
+                    and self._valid_coords_cache is not None
+                    and len(self._valid_coords_cache) > 0
+                ):
+                    try:
+                        pixel_x, pixel_y = random.choice(self._valid_coords_cache)
+                        grid_x = pixel_x // grid_size
+                        grid_y = pixel_y // grid_size
+                    except:
+                        grid_x = random.randint(0, grid_width - 1)
+                        grid_y = random.randint(0, grid_height - 1)
                 else:
-                    # Then try random
-                    grid_x = random.randint(0, grid_width - 1)
-                    grid_y = random.randint(0, grid_height - 1)
+                    # No image boundaries - use original strategy
+                    if attempt < max_attempts // 2:
+                        # Try systematic grid positions first
+                        grid_x = (
+                            attempt * 7
+                        ) % grid_width  # Prime number for good distribution
+                        grid_y = (attempt * 11) % grid_height
+                    else:
+                        grid_x = random.randint(0, grid_width - 1)
+                        grid_y = random.randint(0, grid_height - 1)
 
                 # Convert to pixel coordinates
                 pixel_x = grid_x * grid_size + grid_size // 2
                 pixel_y = grid_y * grid_size + grid_size // 2
 
-                # Check bounds
-                if (
-                    pixel_x - radius < 0
-                    or pixel_x + radius >= self.width
-                    or pixel_y - radius < 0
-                    or pixel_y + radius >= self.height
-                ):
+                # Check if position is valid (bounds + image boundaries)
+                if not self._is_position_valid(pixel_x, pixel_y, radius):
                     continue
 
                 # Check grid occupancy in radius
@@ -385,12 +747,15 @@ class BubbleVisualizer:
 
                     placed += 1
                     found_position = True
+                    consecutive_failures = 0  # Reset failure counter
                     break
 
             if not found_position:
-                # If we can't place this bubble, we probably can't place smaller ones either
-                # in this density, so break early
-                break
+                consecutive_failures += 1
+                # If we can't place this bubble and have failed several in a row,
+                # we probably can't place smaller ones either in this density
+                if consecutive_failures >= max_no_progress:
+                    break
 
         return placed
 
@@ -451,22 +816,59 @@ class BubbleVisualizer:
     def _calculate_bubble_sizes(
         self, word_data: List[Tuple[str, int, str, str]]
     ) -> List[Tuple[str, int, str, str, int]]:
-        """Calculate bubble radii based on word frequency using area-based scaling."""
+        """Calculate bubble radii based on word frequency using area-based scaling, adjusted for available space."""
         if not word_data:
             return []
 
         max_count = max(count for _, count, _, _ in word_data)
         min_count = min(count for _, count, _, _ in word_data)
 
-        # Calculate total area available (use 80% to leave some margin)
-        total_area = 0.8 * self.width * self.height
+        # Calculate available area based on image boundaries
+        if self.valid_positions is not None:
+            # For image boundaries, use actual valid area
+            valid_pixels = np.sum(self.valid_positions)
+            total_area = 0.6 * valid_pixels  # Use 60% of valid area (more conservative)
+            area_ratio = valid_pixels / (self.width * self.height)
+
+            print(f"Valid area: {area_ratio:.1%} of canvas ({valid_pixels:,} pixels)")
+
+            # Adjust scaling based on available space
+            if area_ratio < 0.3:  # Very constrained space (< 30% of canvas)
+                area_utilization = 0.4  # Use 40% of valid area
+                size_multiplier = 0.8  # Smaller bubbles
+            elif area_ratio < 0.5:  # Moderately constrained (30-50% of canvas)
+                area_utilization = 0.35
+                size_multiplier = 0.9
+            else:  # Less constrained (> 50% of canvas)
+                area_utilization = 0.3
+                size_multiplier = 0.9
+        else:
+            # For full canvas, use traditional scaling
+            total_area = 0.8 * self.width * self.height
+            area_utilization = 0.3
+            size_multiplier = 1.0
+
         total_frequency = sum(count for _, count, _, _ in word_data)
 
-        # Scale radii much more aggressively - from 15 to 400 pixels
-        min_radius = 15
-        max_radius = min(
-            400, min(self.width, self.height) // 6
-        )  # Cap at 1/6 of smallest dimension
+        # Adjust radius bounds based on available space and canvas size
+        base_min_radius = 12
+        base_max_radius = min(400, min(self.width, self.height) // 6)
+
+        # Scale radii based on available space
+        min_radius = max(8, int(base_min_radius * size_multiplier))
+        max_radius = int(base_max_radius * size_multiplier)
+
+        # For very constrained spaces, cap maximum radius more aggressively
+        if self.valid_positions is not None:
+            valid_area_ratio = np.sum(self.valid_positions) / (self.width * self.height)
+            if valid_area_ratio < 0.2:  # Very small valid area
+                max_radius = min(max_radius, min(self.width, self.height) // 10)
+            elif valid_area_ratio < 0.4:  # Small-medium valid area
+                max_radius = min(max_radius, min(self.width, self.height) // 8)
+
+        print(
+            f"Bubble size range: {min_radius}-{max_radius} pixels (multiplier: {size_multiplier:.1f})"
+        )
 
         bubble_data = []
         for word, count, word_type, color in word_data:
@@ -474,11 +876,8 @@ class BubbleVisualizer:
                 radius = max_radius // 2
             else:
                 # Use square root scaling for area-proportional bubbles
-                # This makes the visual representation more proportional to frequency
                 area_ratio = count / total_frequency
-                target_area = (
-                    area_ratio * total_area * 0.3
-                )  # Use 30% of available area for scaling
+                target_area = area_ratio * total_area * area_utilization
 
                 # Calculate radius from area (area = π * r²)
                 radius_from_area = math.sqrt(target_area / math.pi)
@@ -500,9 +899,9 @@ class BubbleVisualizer:
         return bubble_data
 
     def _position_bubbles(
-        self, bubble_data: List[Tuple[str, int, str, str, int]]
+        self, bubble_data: List[Tuple[str, int, str, str, int]], use_image_colors: bool
     ) -> List[Tuple[str, int, str, str, int, int, int]]:
-        """Position bubbles with high success rate since we pre-selected an optimal set."""
+        """Position bubbles with high success rate, respecting image boundaries if provided."""
         if not bubble_data:
             return []
 
@@ -511,12 +910,15 @@ class BubbleVisualizer:
         positioned = []
         failed = []
 
-        max_attempts = 5000  # More attempts since we expect high success
+        max_attempts = (
+            5000 if self.valid_positions is not None else 5000
+        )  # More attempts for image boundaries
 
         for word, count, word_type, color, radius in sorted_bubbles:
             best_position = None
             min_distance_to_edge = float("inf")
             attempts = 0
+
             # Try multiple strategies with more systematic coverage
             while attempts < max_attempts:
                 if attempts < max_attempts // 4:
@@ -536,49 +938,72 @@ class BubbleVisualizer:
                         x = int(existing_x + distance * math.cos(angle))
                         y = int(existing_y + distance * math.sin(angle))
                     else:
-                        # First bubble goes in center
-                        x = self.width // 2
-                        y = self.height // 2
+                        # First bubble - try center of valid region
+                        x, y = self._get_initial_center_position()
 
                 elif attempts < max_attempts // 2:
-                    # Strategy 2: Systematic grid coverage
-                    grid_size = 30
-                    grid_x = (attempts * 7) % (
-                        self.width // grid_size
-                    )  # Prime for distribution
-                    grid_y = (attempts * 11) % (self.height // grid_size)
-                    x = grid_x * grid_size + random.randint(
-                        -grid_size // 4, grid_size // 4
-                    )
-                    y = grid_y * grid_size + random.randint(
-                        -grid_size // 4, grid_size // 4
-                    )
+                    # Strategy 2: Sample from valid positions if available
+                    if self.valid_positions is not None:
+                        grid_size = 30
+                        pixel_x, pixel_y = random.choice(self._valid_coords_cache)
+                        grid_x = pixel_x // grid_size
+                        grid_y = pixel_y // grid_size
+                        x = grid_x * grid_size + random.randint(
+                            -grid_size // 4, grid_size // 4
+                        )
+                        y = grid_y * grid_size + random.randint(
+                            -grid_size // 4, grid_size // 4
+                        )
+                    else:
+                        # Systematic grid coverage
+                        grid_size = 30
+                        grid_x = (attempts * 7) % (
+                            self.width // grid_size
+                        )  # Prime for distribution
+                        grid_y = (attempts * 11) % (self.height // grid_size)
+                        x = grid_x * grid_size + random.randint(
+                            -grid_size // 4, grid_size // 4
+                        )
+                        y = grid_y * grid_size + random.randint(
+                            -grid_size // 4, grid_size // 4
+                        )
 
                 elif attempts < 3 * max_attempts // 4:
-                    # Strategy 3: Spiral outward from center
-                    spiral_radius = (attempts - max_attempts // 2) * 3
+                    # Strategy 3: Spiral outward from center or valid center
+                    center_x, center_y = self._get_initial_center_position()
+                    spiral_radius = (attempts - max_attempts // 2) * 2
                     angle = attempts * 0.1
-                    x = int(self.width // 2 + spiral_radius * math.cos(angle))
-                    y = int(self.height // 2 + spiral_radius * math.sin(angle))
+                    x = int(center_x + spiral_radius * math.cos(angle))
+                    y = int(center_y + spiral_radius * math.sin(angle))
 
                 else:
-                    # Strategy 4: Random placement as last resort
-                    x = random.randint(radius, self.width - radius)
-                    y = random.randint(radius, self.height - radius)
+                    # Strategy 4: Random placement from valid positions
+                    if self.valid_positions is not None:
+                        x, y = self._sample_valid_position(radius)
+                    else:
+                        x = random.randint(radius, self.width - radius)
+                        y = random.randint(radius, self.height - radius)
 
-                # Ensure position is within bounds
-                x = max(radius, min(x, self.width - radius))
-                y = max(radius, min(y, self.height - radius))
+                # Check if position is valid (bounds + image boundaries)
+                if not self._is_position_valid(x, y, radius):
+                    attempts += 1
+                    continue
 
                 # Check for overlap with existing bubbles
                 if not self._check_overlap(x, y, radius, positioned):
                     # Calculate distance to nearest edge (prefer center placement)
-                    distance_to_edge = min(
-                        x - radius,
-                        y - radius,
-                        self.width - x - radius,
-                        self.height - y - radius,
-                    )
+                    if self.valid_positions is not None:
+                        # For image boundaries, prefer positions with more surrounding valid area
+                        distance_to_edge = self._calculate_valid_area_score(
+                            x, y, radius
+                        )
+                    else:
+                        distance_to_edge = min(
+                            x - radius,
+                            y - radius,
+                            self.width - x - radius,
+                            self.height - y - radius,
+                        )
 
                     if best_position is None or distance_to_edge > min_distance_to_edge:
                         best_position = (x, y)
@@ -590,10 +1015,16 @@ class BubbleVisualizer:
 
                 attempts += 1
 
-            # Since we pre-selected optimal set, we should succeed more often
+            # Place bubble if position found
             if best_position:
                 x, y = best_position
-                positioned.append((word, count, word_type, color, radius, x, y))
+
+                # Update color if using image colors
+                final_color = color
+                if use_image_colors and self.processed_image is not None:
+                    final_color = self._sample_color_from_image(x, y, radius)
+
+                positioned.append((word, count, word_type, final_color, radius, x, y))
             else:
                 # This shouldn't happen often with the new algorithm
                 failed.append((word, count, radius))
@@ -616,6 +1047,58 @@ class BubbleVisualizer:
 
         return positioned
 
+    def _get_initial_center_position(self) -> Tuple[int, int]:
+        """Get center position for first bubble, considering image boundaries."""
+        if self.valid_positions is not None:
+            # Use cached coordinates for MASSIVE performance improvement
+            if self._valid_coords_cache is None or len(self._valid_coords_cache) == 0:
+                # Fallback to center
+                return self.width // 2, self.height // 2
+            # Sample random valid position from cache - much faster than np.where every time
+            x, y = random.choice(self._valid_coords_cache)
+            return int(x), int(y)
+
+        # Default to image center
+        return self.width // 2, self.height // 2
+
+    def _sample_valid_position(self, radius: int) -> Tuple[int, int]:
+        """Sample a random position from valid areas - optimized for performance."""
+        if self.valid_positions is None:
+            return random.randint(radius, self.width - radius), random.randint(
+                radius, self.height - radius
+            )
+
+        # Use cached coordinates for MASSIVE performance improvement
+        if self._valid_coords_cache is None or len(self._valid_coords_cache) == 0:
+            # Fallback to center
+            return self.width // 2, self.height // 2
+
+        # Sample random valid position from cache - much faster than np.where every time
+        x, y = random.choice(self._valid_coords_cache)
+        return int(x), int(y)
+
+    def _calculate_valid_area_score(self, x: int, y: int, radius: int) -> float:
+        """Calculate score based on amount of valid area around position."""
+        if self.valid_positions is None:
+            return min(
+                x - radius,
+                y - radius,
+                self.width - x - radius,
+                self.height - y - radius,
+            )
+
+        # Check area around the bubble
+        check_radius = radius + 20  # Extra margin
+        x1 = max(0, x - check_radius)
+        y1 = max(0, y - check_radius)
+        x2 = min(self.width, x + check_radius)
+        y2 = min(self.height, y + check_radius)
+
+        region = self.valid_positions[y1:y2, x1:x2]
+        return np.sum(region) / max(
+            1, region.size
+        )  # Fraction of valid area around position
+
     def _check_overlap(
         self, x: int, y: int, radius: int, existing_bubbles: List[Tuple]
     ) -> bool:
@@ -630,8 +1113,19 @@ class BubbleVisualizer:
 
     def _create_image(self, positioned_bubbles: List[Tuple], output_path: str) -> None:
         """Create and save the bubble chart image."""
-        # Create image with white background
-        image = Image.new("RGB", (self.width, self.height), "white")
+        # Create base image
+        if (
+            self.background_image_path
+            and self.background_image is not None
+            and self.show_background
+        ):
+            # Show background image when explicitly requested
+            background_rgb = cv2.cvtColor(self.background_image, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(background_rgb)
+        else:
+            # Create image with white background (default for all other cases)
+            image = Image.new("RGB", (self.width, self.height), "white")
+
         draw = ImageDraw.Draw(image)
 
         # Draw bubbles
@@ -861,3 +1355,127 @@ class BubbleVisualizer:
         from config import DICTIONARY_CONFIG
 
         return DICTIONARY_CONFIG.get("word_types", [])
+
+    def save_debug_images(self, output_dir: str) -> None:
+        """Save debug images showing boundary mask and valid positions."""
+        if not self.background_image_path:
+            print("No background image to debug")
+            return
+
+        import os
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        if self.boundary_mask is not None:
+            # Save boundary mask
+            boundary_img = (self.boundary_mask * 255).astype(np.uint8)
+            boundary_pil = Image.fromarray(boundary_img, mode="L")
+            boundary_path = os.path.join(output_dir, "boundary_mask.png")
+            boundary_pil.save(boundary_path)
+            print(f"Boundary mask saved to: {boundary_path}")
+
+        if self.valid_positions is not None:
+            # Save valid positions mask
+            valid_img = (self.valid_positions * 255).astype(np.uint8)
+            valid_pil = Image.fromarray(valid_img, mode="L")
+            valid_path = os.path.join(output_dir, "valid_positions.png")
+            valid_pil.save(valid_path)
+            print(f"Valid positions mask saved to: {valid_path}")
+
+        if self.processed_image is not None:
+            # Save processed image
+            processed_rgb = cv2.cvtColor(self.processed_image, cv2.COLOR_BGR2RGB)
+            processed_pil = Image.fromarray(processed_rgb)
+            processed_path = os.path.join(output_dir, "processed_image.png")
+            processed_pil.save(processed_path)
+            print(f"Processed image saved to: {processed_path}")
+
+    @staticmethod
+    def create_with_image_example(
+        word_counts: Counter,
+        dict_manager,
+        background_image_path: str,
+        output_path: str,
+        use_image_colors: bool = True,
+        exclude_types: Optional[List[str]] = None,
+        width: int = None,
+        height: int = None,
+        debug_dir: str = None,
+        use_boundaries: bool = True,
+        show_background: bool = False,
+    ) -> None:
+        """
+        Example method showing how to create bubble chart with image boundaries.
+
+        Args:
+            word_counts: Counter of word frequencies
+            dict_manager: DictionaryManager for word type lookup
+            background_image_path: Path to background image
+            output_path: Path to save the final bubble chart
+            use_image_colors: Whether to sample colors from the image
+            exclude_types: Word types to exclude
+            width: Canvas width (optional)
+            height: Canvas height (optional)
+            debug_dir: Directory to save debug images (optional)
+            use_boundaries: Whether to use image boundaries for placement (optional)
+            show_background: Whether to display background image (optional)
+        """
+        boundary_mode = (
+            "with image boundaries"
+            if use_boundaries
+            else "with image colors only (no boundaries)"
+        )
+        background_mode = " with visible background" if show_background else ""
+        print(f"Creating bubble chart {boundary_mode}{background_mode}...")
+
+        # Create visualizer with background image
+        visualizer = BubbleVisualizer(
+            width=width,
+            height=height,
+            background_image_path=background_image_path,
+            use_boundaries=use_boundaries,
+            show_background=show_background,
+        )
+
+        # Save debug images if requested
+        if debug_dir:
+            visualizer.save_debug_images(debug_dir)
+
+        # Create bubble chart
+        visualizer.create_bubble_chart(
+            word_counts=word_counts,
+            dict_manager=dict_manager,
+            output_path=output_path,
+            exclude_types=exclude_types,
+            use_image_colors=use_image_colors,
+        )
+
+        print("Image-based bubble chart creation complete!")
+
+    def _resize_image_preserve_aspect(self, image):
+        """Resize image to fit canvas while preserving aspect ratio."""
+        img_height, img_width = image.shape[:2]
+
+        # Calculate scale factor to fit within canvas
+        scale_w = self.width / img_width
+        scale_h = self.height / img_height
+        scale = min(scale_w, scale_h)  # Use smaller scale to fit entirely
+
+        # Calculate new dimensions
+        new_width = int(img_width * scale)
+        new_height = int(img_height * scale)
+
+        # Resize image
+        resized = cv2.resize(image, (new_width, new_height))
+
+        # Create canvas and center the image
+        canvas = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+
+        # Calculate positioning to center the image
+        start_y = (self.height - new_height) // 2
+        start_x = (self.width - new_width) // 2
+
+        # Place resized image on canvas
+        canvas[start_y : start_y + new_height, start_x : start_x + new_width] = resized
+
+        return canvas
