@@ -104,9 +104,9 @@ class OptimizedGeminiWordCategorizer:
         try:
             print("Validating API key...")
             test_response = self.model.generate_content("test")
-            print("✓ API key validation successful")
+            print("SUCCESS: API key validation successful")
         except Exception as e:
-            print(f"✗ API key validation failed: {e}")
+            print(f"ERROR: API key validation failed: {e}")
             if "API key" in str(e).lower() or "authentication" in str(e).lower():
                 raise RuntimeError(f"API key is invalid or expired: {e}")
             else:
@@ -374,7 +374,7 @@ Word to categorize: """
                 self.error_stats["api_key_errors"]
                 > self.error_stats["rate_limit_errors"]
             ):
-                print("\n⚠️  High API key errors detected. Consider:")
+                print("\nWARNING: High API key errors detected. Consider:")
                 print("   - Checking if your API key has expired")
                 print("   - Verifying your API key quota limits")
                 print("   - Checking if billing is set up correctly")
