@@ -132,6 +132,7 @@ class OptimizedGeminiWordCategorizer:
             "refpron": "Reflexive pronoun (myself, yourself, himself, etc.)",
             "relpron": "Relative pronoun (who, whom, whose, which, that)",
             "spron": "Subject pronoun (used as subjects in sentences)",
+            "pnoun": "Proper noun (person, place, thing, or idea)",
         }
 
         prompt = """You are a linguistic expert. I need you to categorize English words into specific grammatical types.
@@ -143,13 +144,13 @@ Available categories:
             prompt += f"- {word_type}: {description}\n"
 
         prompt += """
-- uncategorized: Use this if the word is not a standard English word, is a proper noun, or doesn't fit the above categories clearly.
+- uncategorized: Use this if the word is not a standard English word, or doesn't fit the above categories clearly.
 
 Rules:
 1. Respond with ONLY the category code (e.g., "noun", "verb", "adj", "uncategorized")
 2. Consider the most common usage of the word
 3. If a word can be multiple types, choose the most primary/common usage
-4. Use "uncategorized" for proper nouns, archaic words, or non-standard English words
+4. Use "uncategorized" for archaic words, or non-standard English words
 5. Be consistent with similar words
 
 Word to categorize: """
