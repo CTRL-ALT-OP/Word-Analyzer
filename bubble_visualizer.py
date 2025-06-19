@@ -43,6 +43,7 @@ class BubbleVisualizer:
         "refpron": "#F1948A",  # Light Red - Reflexive pronoun
         "relpron": "#AED6F1",  # Very Light Blue - Relative pronoun
         "spron": "#D2B4DE",  # Light Lavender - Subject pronoun
+        "pnoun": "#F5B041",  # Gold - Proper noun
         "unknown": "#BDC3C7",  # Gray - Unknown type
     }
 
