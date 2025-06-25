@@ -1124,81 +1124,163 @@ class BubbleVisualizer:
         gradient_mode: bool = False,
     ) -> None:
         """Create and save the bubble chart image."""
-        # Create base image
-        if (
-            self.background_image_path
-            and self.background_image is not None
-            and self.show_background
-        ):
-            # Show background image when explicitly requested
-            background_rgb = cv2.cvtColor(self.background_image, cv2.COLOR_BGR2RGB)
-            image = Image.fromarray(background_rgb)
-        else:
-            # Create image with white background (default for all other cases)
-            image = Image.new("RGB", (self.width, self.height), "white")
 
-        draw = ImageDraw.Draw(image)
+        if gradient_mode:
+            # Create gradient background
+            gradient_background = self._create_gradient_background(positioned_bubbles)
+            image = Image.fromarray(gradient_background)
+            draw = ImageDraw.Draw(image)
 
-        # Draw bubbles
-        for word, count, word_type, color, radius, x, y in positioned_bubbles:
-            # Draw circle
-            bbox = [x - radius, y - radius, x + radius, y + radius]
-            draw.ellipse(bbox, fill=color, outline="black", width=max(1, radius // 50))
+            # Draw text labels over the gradient (no circle outlines)
+            for word, count, word_type, color, radius, x, y in positioned_bubbles:
+                # Draw text with sophisticated scaling based on actual text dimensions
+                if radius > 8:  # Draw text for even smaller bubbles
+                    # Use sophisticated text fitting algorithm
+                    optimal_font_size, text_fits = self._find_optimal_font_size(
+                        draw, word, radius
+                    )
 
-            # Draw text with sophisticated scaling based on actual text dimensions
-            if radius > 8:  # Draw text for even smaller bubbles
-                # Use sophisticated text fitting algorithm
-                optimal_font_size, text_fits = self._find_optimal_font_size(
-                    draw, word, radius
-                )
+                    # Always try to show text, even if algorithm says it won't fit perfectly
+                    if optimal_font_size >= 6:
+                        if final_font := self._get_font(optimal_font_size):
+                            try:
+                                # Get actual text dimensions with final font
+                                bbox = draw.textbbox((0, 0), word, font=final_font)
+                                text_width = bbox[2] - bbox[0]
+                                text_height = bbox[3] - bbox[1]
 
-                # Always try to show text, even if algorithm says it won't fit perfectly
-                if optimal_font_size >= 6:
-                    if final_font := self._get_font(optimal_font_size):
-                        try:
-                            # Get actual text dimensions with final font
-                            bbox = draw.textbbox((0, 0), word, font=final_font)
-                            text_width = bbox[2] - bbox[0]
-                            text_height = bbox[3] - bbox[1]
+                                # Center text perfectly in bubble
+                                text_x = x - text_width // 2
+                                text_y = y - text_height // 2
 
-                            # Center text perfectly in bubble
-                            text_x = x - text_width // 2
-                            text_y = y - text_height // 2
+                                # Add single subtle shadow for better readability on gradients
+                                shadow_offset = max(1, optimal_font_size // 20)
+                                if (
+                                    optimal_font_size > 10
+                                ):  # Add shadow for better contrast
+                                    draw.text(
+                                        (
+                                            text_x + shadow_offset,
+                                            text_y + shadow_offset,
+                                        ),
+                                        word,
+                                        fill="white",
+                                        font=final_font,
+                                    )
 
-                            # Add subtle text shadow for better readability
-                            shadow_offset = max(1, optimal_font_size // 20)
-                            if (
-                                optimal_font_size > 12
-                            ):  # Only add shadow for larger text
+                                # Main text
                                 draw.text(
-                                    (text_x + shadow_offset, text_y + shadow_offset),
-                                    word,
-                                    fill="white",
-                                    font=final_font,
-                                )
-                            draw.text(
-                                (text_x, text_y), word, fill="black", font=final_font
-                            )
-                        except Exception as e:
-                            # Fallback - use simple positioning with guaranteed small font
-                            fallback_size = max(6, min(12, radius // 4))
-                            if fallback_font := self._get_font(fallback_size):
-                                draw.text(
-                                    (
-                                        x - len(word) * fallback_size // 4,
-                                        y - fallback_size // 2,
-                                    ),
+                                    (text_x, text_y),
                                     word,
                                     fill="black",
-                                    font=fallback_font,
+                                    font=final_font,
                                 )
-                elif minimal_font := self._get_font(6):
-                    draw.text(
-                        (x - len(word) * 2, y - 3),
-                        word,
-                        fill="black",
-                        font=minimal_font,
+                            except Exception as e:
+                                # Fallback - use simple positioning with guaranteed small font
+                                fallback_size = max(6, min(12, radius // 4))
+                                if fallback_font := self._get_font(fallback_size):
+                                    draw.text(
+                                        (
+                                            x - len(word) * fallback_size // 4,
+                                            y - fallback_size // 2,
+                                        ),
+                                        word,
+                                        fill="black",
+                                        font=fallback_font,
+                                    )
+                    elif minimal_font := self._get_font(6):
+                        draw.text(
+                            (x - len(word) * 2, y - 3),
+                            word,
+                            fill="black",
+                            font=minimal_font,
+                        )
+        else:
+            # Create base image (original mode)
+            if (
+                self.background_image_path
+                and self.background_image is not None
+                and self.show_background
+            ):
+                # Show background image when explicitly requested
+                background_rgb = cv2.cvtColor(self.background_image, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(background_rgb)
+            else:
+                # Create image with white background (default for all other cases)
+                image = Image.new("RGB", (self.width, self.height), "white")
+
+            draw = ImageDraw.Draw(image)
+
+            # Draw bubbles (original mode)
+            for word, count, word_type, color, radius, x, y in positioned_bubbles:
+                # Draw circle
+                bbox = [x - radius, y - radius, x + radius, y + radius]
+                draw.ellipse(
+                    bbox, fill=color, outline="black", width=max(1, radius // 50)
+                )
+
+                # Draw text with sophisticated scaling based on actual text dimensions
+                if radius > 8:  # Draw text for even smaller bubbles
+                    # Use sophisticated text fitting algorithm
+                    optimal_font_size, text_fits = self._find_optimal_font_size(
+                        draw, word, radius
                     )
+
+                    # Always try to show text, even if algorithm says it won't fit perfectly
+                    if optimal_font_size >= 6:
+                        if final_font := self._get_font(optimal_font_size):
+                            try:
+                                # Get actual text dimensions with final font
+                                bbox = draw.textbbox((0, 0), word, font=final_font)
+                                text_width = bbox[2] - bbox[0]
+                                text_height = bbox[3] - bbox[1]
+
+                                # Center text perfectly in bubble
+                                text_x = x - text_width // 2
+                                text_y = y - text_height // 2
+
+                                # Add subtle text shadow for better readability (original mode)
+                                shadow_offset = max(1, optimal_font_size // 20)
+                                if (
+                                    optimal_font_size > 12
+                                ):  # Only add shadow for larger text
+                                    draw.text(
+                                        (
+                                            text_x + shadow_offset,
+                                            text_y + shadow_offset,
+                                        ),
+                                        word,
+                                        fill="white",
+                                        font=final_font,
+                                    )
+
+                                # Main text
+                                draw.text(
+                                    (text_x, text_y),
+                                    word,
+                                    fill="black",
+                                    font=final_font,
+                                )
+                            except Exception as e:
+                                # Fallback - use simple positioning with guaranteed small font
+                                fallback_size = max(6, min(12, radius // 4))
+                                if fallback_font := self._get_font(fallback_size):
+                                    draw.text(
+                                        (
+                                            x - len(word) * fallback_size // 4,
+                                            y - fallback_size // 2,
+                                        ),
+                                        word,
+                                        fill="black",
+                                        font=fallback_font,
+                                    )
+                    elif minimal_font := self._get_font(6):
+                        draw.text(
+                            (x - len(word) * 2, y - 3),
+                            word,
+                            fill="black",
+                            font=minimal_font,
+                        )
 
         # Save image
         image.save(output_path, "PNG", quality=95, optimize=True)
@@ -1500,4 +1582,99 @@ class BubbleVisualizer:
     def _create_gradient_background(
         self, positioned_bubbles: List[Tuple]
     ) -> np.ndarray:
-        return np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        """
+        Create a gradient background by blending bubble colors with localized influence zones.
+        Much faster and creates proper gradients between nearby bubbles only.
+
+        Args:
+            positioned_bubbles: List of positioned bubble data
+
+        Returns:
+            RGB image array with gradient background
+        """
+        print("Generating localized gradient background...")
+
+        # Create background with neutral color
+        background = np.full(
+            (self.height, self.width, 3), 250, dtype=np.uint8
+        )  # Light gray background
+
+        if not positioned_bubbles:
+            return background
+
+        # Create influence map for each bubble separately (much faster)
+        influence_map = np.zeros((self.height, self.width, 3), dtype=np.float32)
+        total_weights = np.zeros((self.height, self.width), dtype=np.float32)
+
+        print(f"Processing {len(positioned_bubbles)} bubbles for gradient...")
+
+        for i, (word, count, word_type, color, radius, x, y) in enumerate(
+            positioned_bubbles
+        ):
+            if i % 10 == 0:  # Progress indicator
+                print(f"  Processing bubble {i+1}/{len(positioned_bubbles)}")
+
+            # Convert hex color to RGB
+            if color.startswith("#"):
+                r = int(color[1:3], 16)
+                g = int(color[3:5], 16)
+                b = int(color[5:7], 16)
+            else:
+                r, g, b = 128, 128, 128
+
+            # Define influence radius (larger bubbles have more influence)
+            influence_radius = int(
+                radius * 2.5
+            )  # Influence extends beyond bubble itself
+
+            # Calculate bounding box for this bubble's influence
+            x_min = max(0, x - influence_radius)
+            x_max = min(self.width, x + influence_radius + 1)
+            y_min = max(0, y - influence_radius)
+            y_max = min(self.height, y + influence_radius + 1)
+
+            # Create coordinate arrays for this region only
+            xx, yy = np.meshgrid(
+                np.arange(x_min, x_max), np.arange(y_min, y_max), indexing="xy"
+            )
+
+            # Calculate distances from bubble center
+            distances = np.sqrt((xx - x) ** 2 + (yy - y) ** 2)
+
+            # Create smooth falloff weights
+            # Strong influence within bubble radius, gradual falloff to influence_radius
+            weights = np.zeros_like(distances)
+
+            # Inside bubble: full strength
+            inside_mask = distances <= radius
+            weights[inside_mask] = 1.0
+
+            # Outside bubble but within influence: smooth falloff
+            outside_mask = (distances > radius) & (distances <= influence_radius)
+            if np.any(outside_mask):
+                falloff_distances = distances[outside_mask] - radius
+                max_falloff = influence_radius - radius
+                # Smooth cubic falloff
+                normalized_falloff = falloff_distances / max_falloff
+                weights[outside_mask] = (1 - normalized_falloff) ** 3
+
+            # Apply weights to influence map
+            region_weights = weights[..., np.newaxis]
+            region_color = np.array([r, g, b], dtype=np.float32)
+
+            influence_map[y_min:y_max, x_min:x_max] += region_weights * region_color
+            total_weights[y_min:y_max, x_min:x_max] += weights
+
+        # Normalize by total weights where we have influence
+        mask = total_weights > 0.01  # Areas with significant influence
+
+        # Apply gradient colors where we have influence
+        for channel in range(3):
+            background[mask, channel] = np.clip(
+                influence_map[mask, channel] / total_weights[mask], 0, 255
+            ).astype(np.uint8)
+
+        # Areas with no influence keep the neutral background
+
+        print("Localized gradient background generation complete")
+        return background
