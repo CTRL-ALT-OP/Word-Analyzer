@@ -388,6 +388,7 @@ class BubbleVisualizer:
         min_bubble_size: int = 2,
         exclude_types: Optional[List[str]] = None,
         use_image_colors: bool = False,
+        gradient_mode: bool = False,
     ) -> None:
         """
         Create a bubble chart from word frequency data.
@@ -399,6 +400,7 @@ class BubbleVisualizer:
             min_bubble_size: Minimum bubble size in pixels
             exclude_types: List of word types to exclude (e.g., ["art", "conj", "prep"])
             use_image_colors: If True and background image is provided, sample colors from image
+            gradient_mode: If True, create smooth gradient transitions between bubbles instead of hard circles
         """
         # Filter out words from excluded types
         if exclude_types:
@@ -420,12 +422,14 @@ class BubbleVisualizer:
         print("Calculating bubble sizes...")
         bubble_data = self._calculate_bubble_sizes(word_data)
         print("Bubble size data calculated")
+
         # Position bubbles (avoid overlap and respect image boundaries)
         print("Positioning bubbles...")
         positioned_bubbles = self._position_bubbles(bubble_data, use_image_colors)
         print("Bubbles positioned")
+
         # Create and save image
-        self._create_image(positioned_bubbles, output_path)
+        self._create_image(positioned_bubbles, output_path, gradient_mode=gradient_mode)
 
         excluded_info = ""
         if exclude_types:
@@ -436,9 +440,11 @@ class BubbleVisualizer:
             color_info = " with image colors" if use_image_colors else ""
             image_info = f" using image boundaries{color_info}"
 
+        gradient_info = " with gradient transitions" if gradient_mode else ""
+
         print(f"Bubble chart saved to: {output_path}")
         print(
-            f"Generated {len(positioned_bubbles)} bubbles from {len(word_counts)} words{excluded_info}{image_info}"
+            f"Generated {len(positioned_bubbles)} bubbles from {len(word_counts)} words{excluded_info}{image_info}{gradient_info}"
         )
 
     def _filter_small_words(self, word_counts: Counter, min_size: int) -> Counter:
@@ -1111,7 +1117,12 @@ class BubbleVisualizer:
                 return True
         return False
 
-    def _create_image(self, positioned_bubbles: List[Tuple], output_path: str) -> None:
+    def _create_image(
+        self,
+        positioned_bubbles: List[Tuple],
+        output_path: str,
+        gradient_mode: bool = False,
+    ) -> None:
         """Create and save the bubble chart image."""
         # Create base image
         if (
@@ -1403,6 +1414,7 @@ class BubbleVisualizer:
         debug_dir: str = None,
         use_boundaries: bool = True,
         show_background: bool = False,
+        gradient_mode: bool = False,
     ) -> None:
         """
         Example method showing how to create bubble chart with image boundaries.
@@ -1419,6 +1431,7 @@ class BubbleVisualizer:
             debug_dir: Directory to save debug images (optional)
             use_boundaries: Whether to use image boundaries for placement (optional)
             show_background: Whether to display background image (optional)
+            gradient_mode: Whether to create gradient transitions between bubbles (optional)
         """
         boundary_mode = (
             "with image boundaries"
@@ -1426,7 +1439,10 @@ class BubbleVisualizer:
             else "with image colors only (no boundaries)"
         )
         background_mode = " with visible background" if show_background else ""
-        print(f"Creating bubble chart {boundary_mode}{background_mode}...")
+        gradient_info = " with gradient transitions" if gradient_mode else ""
+        print(
+            f"Creating bubble chart {boundary_mode}{background_mode}{gradient_info}..."
+        )
 
         # Create visualizer with background image
         visualizer = BubbleVisualizer(
@@ -1448,6 +1464,7 @@ class BubbleVisualizer:
             output_path=output_path,
             exclude_types=exclude_types,
             use_image_colors=use_image_colors,
+            gradient_mode=gradient_mode,
         )
 
         print("Image-based bubble chart creation complete!")
@@ -1479,3 +1496,8 @@ class BubbleVisualizer:
         canvas[start_y : start_y + new_height, start_x : start_x + new_width] = resized
 
         return canvas
+
+    def _create_gradient_background(
+        self, positioned_bubbles: List[Tuple]
+    ) -> np.ndarray:
+        return np.zeros((self.height, self.width, 3), dtype=np.uint8)

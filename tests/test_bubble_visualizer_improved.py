@@ -12,6 +12,7 @@ from collections import Counter
 from typing import List, Optional
 from unittest.mock import patch, Mock
 import subprocess
+import numpy as np
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -571,6 +572,594 @@ class TestBubbleVisualizerQualityAssurance:
 
         # Bubbles overlap if distance < sum of radii
         return distance < (r1 + r2)
+
+
+@pytest.mark.quality
+class TestBubbleVisualizerGradientMode:
+    """Test gradient mode functionality for bubble visualizer."""
+
+    def test_gradient_mode_creates_different_background_than_normal_mode(
+        self,
+        bubble_visualizer_4k,
+        placeholder_dataset,
+        real_dict_manager,
+        temp_output_file,
+    ):
+        """Test that gradient mode produces a visually different background from normal mode."""
+        gradient_background = None
+        normal_background = None
+        positioned_bubbles = []
+
+        def capture_gradient_background(bubbles, output_path, gradient_mode=False):
+            nonlocal gradient_background, normal_background, positioned_bubbles
+            positioned_bubbles = bubbles[:]
+            if gradient_mode:
+                # Capture gradient background generation
+                gradient_background = bubble_visualizer_4k._create_gradient_background(
+                    bubbles
+                )
+            else:
+                # For normal mode, create a white background equivalent
+                normal_background = np.full(
+                    (bubble_visualizer_4k.height, bubble_visualizer_4k.width, 3),
+                    255,
+                    dtype=np.uint8,
+                )
+
+        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
+            original_create_image = bubble_visualizer_4k._create_image
+            bubble_visualizer_4k._create_image = capture_gradient_background
+
+            # First, create normal mode chart
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=False,
+            )
+
+            # Then create gradient mode chart
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=True,
+            )
+
+        # Verify both backgrounds were captured
+        assert gradient_background is not None, "Gradient background should be captured"
+        assert normal_background is not None, "Normal background should be captured"
+        assert len(positioned_bubbles) > 0, "Should have positioned bubbles"
+
+        # Verify backgrounds are different
+        assert not np.array_equal(
+            gradient_background, normal_background
+        ), "Gradient mode should produce different background than normal mode"
+
+        # Verify gradient background is not uniform (should have color variations)
+        gradient_variance = np.var(gradient_background)
+        normal_variance = np.var(normal_background)
+        assert (
+            gradient_variance > normal_variance
+        ), "Gradient background should have more color variation than normal background"
+
+        print(f"\nGradient Mode Test Results:")
+        print(f"Positioned bubbles: {len(positioned_bubbles)}")
+        print(f"Gradient variance: {gradient_variance:.2f}")
+        print(f"Normal variance: {normal_variance:.2f}")
+
+    def test_gradient_background_uses_bubble_colors(
+        self,
+        bubble_visualizer_4k,
+        placeholder_dataset,
+        real_dict_manager,
+        temp_output_file,
+    ):
+        """Test that gradient background incorporates colors from positioned bubbles."""
+        gradient_background = None
+        positioned_bubbles = []
+
+        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+            nonlocal gradient_background, positioned_bubbles
+            if gradient_mode:
+                positioned_bubbles = bubbles[:]
+                gradient_background = bubble_visualizer_4k._create_gradient_background(
+                    bubbles
+                )
+
+        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
+            original_create_image = bubble_visualizer_4k._create_image
+            bubble_visualizer_4k._create_image = capture_gradient_data
+
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=True,
+            )
+
+        assert (
+            gradient_background is not None
+        ), "Gradient background should be generated"
+        assert len(positioned_bubbles) > 0, "Should have positioned bubbles"
+
+        # Extract colors from positioned bubbles
+        bubble_colors = []
+        for bubble in positioned_bubbles:
+            word, count, word_type, color, radius, x, y = bubble
+            if color.startswith("#"):
+                r = int(color[1:3], 16)
+                g = int(color[3:5], 16)
+                b = int(color[5:7], 16)
+                bubble_colors.append((r, g, b))
+
+        # Verify gradient background contains colors similar to bubble colors
+        unique_gradient_colors = self._extract_unique_colors_from_gradient(
+            gradient_background
+        )
+
+        # Check that gradient has more color diversity than just the neutral background
+        assert (
+            len(unique_gradient_colors) > 10
+        ), "Gradient should contain diverse colors from bubbles"
+
+        # Verify some gradient colors are close to bubble colors
+        colors_found = 0
+        for bubble_color in bubble_colors[:10]:  # Check first 10 bubble colors
+            if self._is_color_present_in_gradient(bubble_color, unique_gradient_colors):
+                colors_found += 1
+
+        assert (
+            colors_found > 0
+        ), "Gradient background should contain colors similar to bubble colors"
+
+        print(f"\nGradient Color Usage Test Results:")
+        print(f"Bubble colors tested: {len(bubble_colors[:10])}")
+        print(f"Unique gradient colors: {len(unique_gradient_colors)}")
+        print(f"Bubble colors found in gradient: {colors_found}")
+
+    def test_gradient_blending_creates_smooth_transitions(
+        self,
+        bubble_visualizer_4k,
+        placeholder_dataset,
+        real_dict_manager,
+        temp_output_file,
+    ):
+        """Test that gradient mode creates smooth color transitions between bubble regions."""
+        gradient_background = None
+        positioned_bubbles = []
+
+        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+            nonlocal gradient_background, positioned_bubbles
+            if gradient_mode:
+                positioned_bubbles = bubbles[:]
+                gradient_background = bubble_visualizer_4k._create_gradient_background(
+                    bubbles
+                )
+
+        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
+            original_create_image = bubble_visualizer_4k._create_image
+            bubble_visualizer_4k._create_image = capture_gradient_data
+
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=True,
+            )
+
+        assert (
+            gradient_background is not None
+        ), "Gradient background should be generated"
+        assert len(positioned_bubbles) >= 2, "Need at least 2 bubbles to test blending"
+
+        # Find suitable bubbles for transition testing
+        bubble_pairs = self._find_suitable_bubble_pairs_for_blending(positioned_bubbles)
+        if not bubble_pairs:
+            pytest.skip("Could not find suitable bubble pairs to test blending")
+
+        # Test multiple bubble pairs to get reliable results
+        smooth_transitions_found = 0
+        total_pairs_tested = min(3, len(bubble_pairs))  # Test up to 3 pairs
+
+        for bubble1, bubble2 in bubble_pairs[:total_pairs_tested]:
+            # Extract positions
+            x1, y1 = (
+                bubble1[5],
+                bubble1[6],
+            )  # bubble format: (word, count, word_type, color, radius, x, y)
+            x2, y2 = bubble2[5], bubble2[6]
+
+            # Sample colors along the line between the two bubbles
+            transition_colors = self._sample_colors_along_line(
+                gradient_background, x1, y1, x2, y2, num_samples=15
+            )
+
+            # Verify we have a smooth transition (colors should vary gradually)
+            color_changes = self._calculate_color_changes(transition_colors)
+
+            # Calculate transition quality metrics
+            max_change = max(color_changes) if color_changes else 0
+            avg_change = sum(color_changes) / len(color_changes) if color_changes else 0
+
+            # More realistic thresholds for gradient transitions
+            # Large color jumps can happen when transitioning between very different bubble colors
+            # but should not be the norm
+            large_jumps = sum(1 for change in color_changes if change > 150)
+            large_jump_ratio = large_jumps / len(color_changes) if color_changes else 0
+
+            print(f"\nBubble pair {bubble_pairs.index((bubble1, bubble2)) + 1}:")
+            print(f"  Positions: ({x1}, {y1}) to ({x2}, {y2})")
+            print(f"  Max color change: {max_change:.2f}")
+            print(f"  Average color change: {avg_change:.2f}")
+            print(f"  Large jumps ratio: {large_jump_ratio:.2%}")
+
+            # Consider transition smooth if:
+            # 1. Average change is reasonable (some variation expected)
+            # 2. Not too many large jumps (< 30% of transitions)
+            if avg_change > 0 and large_jump_ratio < 0.3:
+                smooth_transitions_found += 1
+
+        # Require at least one smooth transition among tested pairs
+        assert (
+            smooth_transitions_found > 0
+        ), f"Should find at least one smooth transition among {total_pairs_tested} tested pairs"
+
+        print(f"\nGradient Blending Test Summary:")
+        print(f"Pairs tested: {total_pairs_tested}")
+        print(f"Smooth transitions found: {smooth_transitions_found}")
+
+    def test_gradient_colors_accurate_to_bubble_colors(
+        self,
+        bubble_visualizer_4k,
+        placeholder_dataset,
+        real_dict_manager,
+        temp_output_file,
+    ):
+        """Test that gradient colors near bubble centers are accurate to the actual bubble colors."""
+        gradient_background = None
+        positioned_bubbles = []
+
+        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+            nonlocal gradient_background, positioned_bubbles
+            if gradient_mode:
+                positioned_bubbles = bubbles[:]
+                gradient_background = bubble_visualizer_4k._create_gradient_background(
+                    bubbles
+                )
+
+        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
+            original_create_image = bubble_visualizer_4k._create_image
+            bubble_visualizer_4k._create_image = capture_gradient_data
+
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=True,
+            )
+
+        assert (
+            gradient_background is not None
+        ), "Gradient background should be generated"
+        assert len(positioned_bubbles) > 0, "Should have positioned bubbles"
+
+        # Test a sample of bubbles for color accuracy
+        test_bubbles = positioned_bubbles[: min(10, len(positioned_bubbles))]
+        accurate_colors = 0
+        total_tested = 0
+
+        for bubble in test_bubbles:
+            word, count, word_type, expected_color, radius, x, y = bubble
+
+            # Parse expected color from hex
+            if not expected_color.startswith("#"):
+                continue
+
+            try:
+                expected_r = int(expected_color[1:3], 16)
+                expected_g = int(expected_color[3:5], 16)
+                expected_b = int(expected_color[5:7], 16)
+                expected_rgb = (expected_r, expected_g, expected_b)
+            except ValueError:
+                continue
+
+            # Sample gradient color at bubble center
+            gradient_color = gradient_background[y, x]
+            gradient_rgb = tuple(gradient_color)
+
+            # Calculate color difference
+            color_diff = np.linalg.norm(np.array(expected_rgb) - np.array(gradient_rgb))
+
+            # Also sample colors around the bubble center for better accuracy
+            sample_colors = []
+            sample_radius = max(1, radius // 4)  # Sample within inner quarter of bubble
+            for dy in range(
+                -sample_radius, sample_radius + 1, max(1, sample_radius // 2)
+            ):
+                for dx in range(
+                    -sample_radius, sample_radius + 1, max(1, sample_radius // 2)
+                ):
+                    sample_x = max(0, min(x + dx, gradient_background.shape[1] - 1))
+                    sample_y = max(0, min(y + dy, gradient_background.shape[0] - 1))
+                    sample_colors.append(tuple(gradient_background[sample_y, sample_x]))
+
+            # Find the closest color among samples
+            min_diff = color_diff
+            for sample_color in sample_colors:
+                diff = np.linalg.norm(np.array(expected_rgb) - np.array(sample_color))
+                min_diff = min(min_diff, diff)
+
+            total_tested += 1
+
+            # Colors are considered accurate if within reasonable tolerance
+            # (allowing for blending effects and RGB conversion)
+            tolerance = 60  # Reasonable tolerance for color accuracy
+            if min_diff <= tolerance:
+                accurate_colors += 1
+
+            print(f"Bubble '{word}' at ({x}, {y}):")
+            print(f"  Expected RGB: {expected_rgb}")
+            print(f"  Gradient RGB: {gradient_rgb}")
+            print(f"  Color difference: {color_diff:.2f}")
+            print(f"  Min difference (sampled): {min_diff:.2f}")
+            print(f"  Accurate: {'Yes' if min_diff <= tolerance else 'No'}")
+
+        # Require reasonable color accuracy
+        accuracy_rate = accurate_colors / total_tested if total_tested > 0 else 0
+
+        assert total_tested > 0, "Should have testable bubbles with valid colors"
+        assert (
+            accuracy_rate >= 0.5
+        ), f"At least 50% of bubble colors should be accurate, got {accuracy_rate:.1%} ({accurate_colors}/{total_tested})"
+
+        print(f"\nGradient Color Accuracy Test Summary:")
+        print(f"Bubbles tested: {total_tested}")
+        print(f"Accurate colors: {accurate_colors}")
+        print(f"Accuracy rate: {accuracy_rate:.1%}")
+
+    # P2P TESTS:
+    def test_gradient_mode_handles_edge_cases(
+        self, bubble_visualizer_4k, real_dict_manager, temp_output_file
+    ):
+        """Test gradient mode with edge cases like single bubble or empty dataset."""
+        gradient_background = None
+
+        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+            nonlocal gradient_background
+            if gradient_mode:
+                gradient_background = bubble_visualizer_4k._create_gradient_background(
+                    bubbles
+                )
+
+        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
+            original_create_image = bubble_visualizer_4k._create_image
+            bubble_visualizer_4k._create_image = capture_gradient_data
+
+            # Test with single word
+            single_word = Counter({"test": 100})
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=single_word,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=True,
+            )
+
+        assert (
+            gradient_background is not None
+        ), "Should generate gradient even with single bubble"
+
+        # Should produce a valid gradient background
+        assert gradient_background.shape == (
+            bubble_visualizer_4k.height,
+            bubble_visualizer_4k.width,
+            3,
+        ), "Gradient background should have correct dimensions"
+        assert (
+            gradient_background.dtype == np.uint8
+        ), "Gradient background should be uint8 type"
+
+        # Test with empty dataset (should not crash)
+        empty_counts = Counter()
+        try:
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=empty_counts,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=True,
+            )
+        except Exception as e:
+            pytest.fail(
+                f"Gradient mode should handle empty dataset gracefully, got: {e}"
+            )
+
+    def test_gradient_mode_preserves_bubble_positioning(
+        self,
+        bubble_visualizer_4k,
+        placeholder_dataset,
+        real_dict_manager,
+        temp_output_file,
+    ):
+        """Test that gradient mode doesn't affect bubble positioning logic."""
+        normal_bubbles = []
+        gradient_bubbles = []
+
+        def capture_normal_bubbles(bubbles, output_path, gradient_mode=False):
+            nonlocal normal_bubbles
+            if not gradient_mode:
+                normal_bubbles = bubbles[:]
+
+        def capture_gradient_bubbles(bubbles, output_path, gradient_mode=False):
+            nonlocal gradient_bubbles
+            if gradient_mode:
+                gradient_bubbles = bubbles[:]
+
+        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
+            # Create normal mode chart
+            bubble_visualizer_4k._create_image = capture_normal_bubbles
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=False,
+            )
+
+            # Create gradient mode chart
+            bubble_visualizer_4k._create_image = capture_gradient_bubbles
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+                gradient_mode=True,
+            )
+
+        assert len(normal_bubbles) > 0, "Should have normal mode bubbles"
+        assert len(gradient_bubbles) > 0, "Should have gradient mode bubbles"
+
+        # Bubble positioning should be consistent between modes
+        # (allowing for some randomness in positioning algorithm)
+        assert len(normal_bubbles) == len(
+            gradient_bubbles
+        ), "Both modes should position the same number of bubbles"
+
+        print(f"\nGradient Mode Positioning Test Results:")
+        print(f"Normal mode bubbles: {len(normal_bubbles)}")
+        print(f"Gradient mode bubbles: {len(gradient_bubbles)}")
+
+    def _extract_unique_colors_from_gradient(self, gradient_bg, sample_size=1000):
+        """Extract unique colors from gradient background by sampling."""
+        height, width, _ = gradient_bg.shape
+
+        # Sample random pixels to get color diversity
+        sample_indices = np.random.choice(
+            height * width, min(sample_size, height * width), replace=False
+        )
+        sampled_pixels = gradient_bg.reshape(-1, 3)[sample_indices]
+
+        # Get unique colors (with some tolerance for near-identical colors)
+        unique_colors = []
+        for pixel in sampled_pixels:
+            is_unique = True
+            for existing_color in unique_colors:
+                if np.linalg.norm(pixel - existing_color) < 10:  # Tolerance threshold
+                    is_unique = False
+                    break
+            if is_unique:
+                unique_colors.append(tuple(pixel))
+
+        return unique_colors
+
+    def _is_color_present_in_gradient(
+        self, target_color, gradient_colors, tolerance=30
+    ):
+        """Check if a target color is present in the gradient colors within tolerance."""
+        target_array = np.array(target_color)
+        for gradient_color in gradient_colors:
+            gradient_array = np.array(gradient_color)
+            if np.linalg.norm(target_array - gradient_array) < tolerance:
+                return True
+        return False
+
+    def _find_nearby_bubbles(self, positioned_bubbles):
+        """Find two bubbles that are close to each other for blending tests."""
+        if len(positioned_bubbles) < 2:
+            return None, None
+
+        min_distance = float("inf")
+        bubble1, bubble2 = None, None
+
+        for i in range(len(positioned_bubbles)):
+            for j in range(i + 1, len(positioned_bubbles)):
+                b1, b2 = positioned_bubbles[i], positioned_bubbles[j]
+                x1, y1 = b1[5], b1[6]
+                x2, y2 = b2[5], b2[6]
+                distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+
+                # Find bubbles that are close but not overlapping
+                if 50 < distance < min_distance and distance < 300:
+                    min_distance = distance
+                    bubble1, bubble2 = b1, b2
+
+        return bubble1, bubble2
+
+    def _find_suitable_bubble_pairs_for_blending(self, positioned_bubbles):
+        """Find multiple suitable bubble pairs for robust blending tests."""
+        if len(positioned_bubbles) < 2:
+            return []
+
+        pairs = []
+
+        # Sort bubbles by position for more systematic pairing
+        sorted_bubbles = sorted(positioned_bubbles, key=lambda b: (b[5], b[6]))
+
+        for i in range(len(sorted_bubbles)):
+            for j in range(i + 1, len(sorted_bubbles)):
+                b1, b2 = sorted_bubbles[i], sorted_bubbles[j]
+                x1, y1 = b1[5], b1[6]
+                x2, y2 = b2[5], b2[6]
+                r1, r2 = b1[4], b2[4]  # radii
+
+                distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+
+                # Find bubbles that are:
+                # 1. Not overlapping (distance > sum of radii + small margin)
+                # 2. Not too far apart (reasonable transition distance)
+                # 3. Have different colors (for meaningful blending test)
+                min_distance = r1 + r2 + 20  # Non-overlapping with margin
+                max_distance = min(
+                    400, max(r1, r2) * 4
+                )  # Reasonable transition distance
+
+                if min_distance < distance < max_distance:
+                    # Check if colors are different enough
+                    color1, color2 = b1[3], b2[3]
+                    if (
+                        color1 != color2
+                    ):  # Different colors make for better blending tests
+                        pairs.append((b1, b2))
+
+                # Limit to avoid too many pairs
+                if len(pairs) >= 10:
+                    break
+            if len(pairs) >= 10:
+                break
+
+        # Sort pairs by distance (closer pairs first, likely better for blending tests)
+        pairs.sort(
+            key=lambda pair: (
+                (pair[0][5] - pair[1][5]) ** 2 + (pair[0][6] - pair[1][6]) ** 2
+            )
+            ** 0.5
+        )
+
+        return pairs
+
+    def _sample_colors_along_line(self, gradient_bg, x1, y1, x2, y2, num_samples=10):
+        """Sample colors along a line between two points in the gradient."""
+        colors = []
+        for i in range(num_samples):
+            t = i / (num_samples - 1)
+            x = int(x1 + t * (x2 - x1))
+            y = int(y1 + t * (y2 - y1))
+
+            # Ensure coordinates are within bounds
+            x = max(0, min(x, gradient_bg.shape[1] - 1))
+            y = max(0, min(y, gradient_bg.shape[0] - 1))
+
+            color = gradient_bg[y, x]
+            colors.append(tuple(color))
+
+        return colors
+
+    def _calculate_color_changes(self, colors):
+        """Calculate color change magnitudes between consecutive colors."""
+        changes = []
+        for i in range(1, len(colors)):
+            prev_color = np.array(colors[i - 1])
+            curr_color = np.array(colors[i])
+            change = np.linalg.norm(curr_color - prev_color)
+            changes.append(change)
+        return changes
 
 
 @pytest.mark.unit

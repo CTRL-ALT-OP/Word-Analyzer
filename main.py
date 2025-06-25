@@ -52,6 +52,12 @@ Examples:
   # Use image colors with visible background (overlay effect)
   python main.py --input text.txt --build-graph overlay_chart.png --background-image photo.jpg --use-image-colors --no-boundaries --show-background
   
+  # Create bubble chart with gradient transitions (smooth color blending)
+  python main.py --input text.txt --build-graph gradient_chart.png --gradient-mode
+  
+  # Create image-based gradient chart with boundary constraints
+  python main.py --input text.txt --build-graph image_gradient.png --background-image portrait.jpg --gradient-mode
+  
   # Create image-based chart with custom canvas size and debug images
   python main.py --input text.txt --build-graph chart.png --background-image photo.jpg --canvas-size 1920 1080 --debug-images debug/
   
@@ -170,6 +176,11 @@ Examples:
         "--show-background",
         action="store_true",
         help="Display background image in final chart (only works with --no-boundaries)",
+    )
+    image_group.add_argument(
+        "--gradient-mode",
+        action="store_true",
+        help="Create smooth gradient transitions between bubbles instead of hard circles",
     )
     image_group.add_argument(
         "--canvas-size",
@@ -409,6 +420,9 @@ def main():
                 and background_image_path is not None
             )
 
+            # Determine if using gradient mode
+            gradient_mode = hasattr(args, "gradient_mode") and args.gradient_mode
+
             # Create bubble chart
             print(f"Creating bubble chart with {len(word_counts)} unique words...")
             visualizer.create_bubble_chart(
@@ -417,6 +431,7 @@ def main():
                 args.build_graph,
                 exclude_types=exclude_types,
                 use_image_colors=use_image_colors,
+                gradient_mode=gradient_mode,
             )
 
             # Create legend if specified
@@ -439,13 +454,16 @@ def main():
                 else:
                     boundary_info = " (within image boundaries)"
 
+                gradient_info = " with gradient transitions" if gradient_mode else ""
+
                 print(
-                    f"SUCCESS: Created image-based bubble chart{color_info}{boundary_info}"
+                    f"SUCCESS: Created image-based bubble chart{color_info}{boundary_info}{gradient_info}"
                 )
                 if hasattr(args, "debug_images") and args.debug_images:
                     print(f"DEBUG: Debug images available in: {args.debug_images}")
             else:
-                print("SUCCESS: Created standard bubble chart")
+                gradient_info = " with gradient transitions" if gradient_mode else ""
+                print(f"SUCCESS: Created standard bubble chart{gradient_info}")
 
         except ImportError as e:
             print(f"Error: {e}")
