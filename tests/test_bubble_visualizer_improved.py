@@ -782,23 +782,54 @@ class TestBubbleVisualizerGradientMode:
             max_change = max(color_changes) if color_changes else 0
             avg_change = sum(color_changes) / len(color_changes) if color_changes else 0
 
-            # More realistic thresholds for gradient transitions
-            # Large color jumps can happen when transitioning between very different bubble colors
-            # but should not be the norm
-            large_jumps = sum(1 for change in color_changes if change > 150)
-            large_jump_ratio = large_jumps / len(color_changes) if color_changes else 0
+            # Focus on gradient smoothness rather than absolute color change values
+            # A smooth gradient has relatively consistent change rates, not necessarily small changes
+            if len(color_changes) > 1:
+                # Calculate standard deviation of color changes to measure consistency
+                variance = sum(
+                    (change - avg_change) ** 2 for change in color_changes
+                ) / len(color_changes)
+                std_dev = variance**0.5
+
+                # Coefficient of variation: std_dev / mean (measures relative consistency)
+                # Lower values indicate more consistent (smoother) transitions
+                consistency_ratio = (
+                    std_dev / avg_change if avg_change > 0 else float("inf")
+                )
+
+                # Check for abrupt single jumps that dominate the transition
+                sorted_changes = sorted(color_changes)
+                # If the largest change is much bigger than the median, it's likely abrupt
+                median_change = sorted_changes[len(sorted_changes) // 2]
+                max_to_median_ratio = (
+                    max_change / median_change if median_change > 0 else float("inf")
+                )
+            else:
+                consistency_ratio = float("inf")
+                max_to_median_ratio = float("inf")
 
             print(f"\nBubble pair {bubble_pairs.index((bubble1, bubble2)) + 1}:")
             print(f"  Positions: ({x1}, {y1}) to ({x2}, {y2})")
             print(f"  Max color change: {max_change:.2f}")
             print(f"  Average color change: {avg_change:.2f}")
-            print(f"  Large jumps ratio: {large_jump_ratio:.2%}")
+            print(f"  Consistency ratio: {consistency_ratio:.2f}")
+            print(f"  Max/median ratio: {max_to_median_ratio:.2f}")
 
             # Consider transition smooth if:
-            # 1. Average change is reasonable (some variation expected)
-            # 2. Not too many large jumps (< 30% of transitions)
-            if avg_change > 0 and large_jump_ratio < 0.3:
+            # 1. Changes are relatively consistent (low coefficient of variation)
+            # 2. No single change dominates the transition (reasonable max/median ratio)
+            # 3. There is actual color variation (avg_change > 0)
+            is_consistent = consistency_ratio < 2.0  # Reasonable consistency
+            no_dominant_jumps = max_to_median_ratio < 5.0  # No extreme outliers
+            has_variation = avg_change > 0
+
+            if is_consistent and no_dominant_jumps and has_variation:
                 smooth_transitions_found += 1
+                print(f"  → Smooth transition found!")
+            else:
+                print(
+                    f"  → Not smooth: consistent={is_consistent}, no_dominant={no_dominant_jumps}, has_variation={has_variation}"
+                )
 
         # Require at least one smooth transition among tested pairs
         assert (
