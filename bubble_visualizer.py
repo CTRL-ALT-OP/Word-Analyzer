@@ -610,10 +610,7 @@ class BubbleVisualizer:
         # Calculate bubble sizes (reuse existing method but simplified)
         bubble_data = self._calculate_bubble_sizes_fast(word_data)
 
-        # Test placement with faster algorithm
-        result = self._test_placement_fast(bubble_data)
-
-        return result
+        return self._test_placement_fast(bubble_data)
 
     def _calculate_bubble_sizes_fast(
         self, word_data: List[Tuple[str, int, str, str]]
@@ -700,20 +697,18 @@ class BubbleVisualizer:
                         pixel_x, pixel_y = random.choice(self._valid_coords_cache)
                         grid_x = pixel_x // grid_size
                         grid_y = pixel_y // grid_size
-                    except:
+                    except Exception:
                         grid_x = random.randint(0, grid_width - 1)
                         grid_y = random.randint(0, grid_height - 1)
+                elif attempt < max_attempts // 2:
+                    # Try systematic grid positions first
+                    grid_x = (
+                        attempt * 7
+                    ) % grid_width  # Prime number for good distribution
+                    grid_y = (attempt * 11) % grid_height
                 else:
-                    # No image boundaries - use original strategy
-                    if attempt < max_attempts // 2:
-                        # Try systematic grid positions first
-                        grid_x = (
-                            attempt * 7
-                        ) % grid_width  # Prime number for good distribution
-                        grid_y = (attempt * 11) % grid_height
-                    else:
-                        grid_x = random.randint(0, grid_width - 1)
-                        grid_y = random.randint(0, grid_height - 1)
+                    grid_x = random.randint(0, grid_width - 1)
+                    grid_y = random.randint(0, grid_height - 1)
 
                 # Convert to pixel coordinates
                 pixel_x = grid_x * grid_size + grid_size // 2
@@ -916,9 +911,7 @@ class BubbleVisualizer:
         positioned = []
         failed = []
 
-        max_attempts = (
-            5000 if self.valid_positions is not None else 5000
-        )  # More attempts for image boundaries
+        max_attempts = 5000
 
         for word, count, word_type, color, radius in sorted_bubbles:
             best_position = None
@@ -948,32 +941,23 @@ class BubbleVisualizer:
                         x, y = self._get_initial_center_position()
 
                 elif attempts < max_attempts // 2:
+                    grid_size = 30
                     # Strategy 2: Sample from valid positions if available
-                    if self.valid_positions is not None:
-                        grid_size = 30
-                        pixel_x, pixel_y = random.choice(self._valid_coords_cache)
-                        grid_x = pixel_x // grid_size
-                        grid_y = pixel_y // grid_size
-                        x = grid_x * grid_size + random.randint(
-                            -grid_size // 4, grid_size // 4
-                        )
-                        y = grid_y * grid_size + random.randint(
-                            -grid_size // 4, grid_size // 4
-                        )
-                    else:
-                        # Systematic grid coverage
-                        grid_size = 30
+                    if self.valid_positions is None:
                         grid_x = (attempts * 7) % (
                             self.width // grid_size
                         )  # Prime for distribution
                         grid_y = (attempts * 11) % (self.height // grid_size)
-                        x = grid_x * grid_size + random.randint(
-                            -grid_size // 4, grid_size // 4
-                        )
-                        y = grid_y * grid_size + random.randint(
-                            -grid_size // 4, grid_size // 4
-                        )
-
+                    else:
+                        pixel_x, pixel_y = random.choice(self._valid_coords_cache)
+                        grid_x = pixel_x // grid_size
+                        grid_y = pixel_y // grid_size
+                    x = grid_x * grid_size + random.randint(
+                        -grid_size // 4, grid_size // 4
+                    )
+                    y = grid_y * grid_size + random.randint(
+                        -grid_size // 4, grid_size // 4
+                    )
                 elif attempts < 3 * max_attempts // 4:
                     # Strategy 3: Spiral outward from center or valid center
                     center_x, center_y = self._get_initial_center_position()
@@ -982,13 +966,11 @@ class BubbleVisualizer:
                     x = int(center_x + spiral_radius * math.cos(angle))
                     y = int(center_y + spiral_radius * math.sin(angle))
 
+                elif self.valid_positions is not None:
+                    x, y = self._sample_valid_position(radius)
                 else:
-                    # Strategy 4: Random placement from valid positions
-                    if self.valid_positions is not None:
-                        x, y = self._sample_valid_position(radius)
-                    else:
-                        x = random.randint(radius, self.width - radius)
-                        y = random.randint(radius, self.height - radius)
+                    x = random.randint(radius, self.width - radius)
+                    y = random.randint(radius, self.height - radius)
 
                 # Check if position is valid (bounds + image boundaries)
                 if not self._is_position_valid(x, y, radius):
@@ -1296,11 +1278,11 @@ class BubbleVisualizer:
                 for font_name in ["calibri.ttf", "times.ttf", "georgia.ttf"]:
                     try:
                         return ImageFont.truetype(font_name, font_size)
-                    except:
+                    except Exception:
                         continue
                 # Fallback to default font
                 return ImageFont.load_default()
-            except:
+            except Exception:
                 return None
 
     def _find_optimal_font_size(self, draw, word: str, radius: int) -> Tuple[int, bool]:
