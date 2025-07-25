@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext, simpledialog
 from tkinter.ttk import Notebook, Frame
 import threading
-from typing import Optional, Dict, List, Tuple, Counter
+from typing import Optional, Dict, List, Tuple, Counter, Callable, Any
 import os
 from pathlib import Path
 import json
@@ -18,6 +18,202 @@ from word_analysis import WordAnalyzer
 from dictionary_manager import DictionaryManager
 from bubble_visualizer import BubbleVisualizer
 from config import FINGERPRINT_CONFIG, DICTIONARY_CONFIG
+
+
+class ProgressHandler:
+    """Handles progress indication and background tasks."""
+
+    def __init__(self, progress_var: tk.StringVar, progress_bar: ttk.Progressbar):
+        self.progress_var = progress_var
+        self.progress_bar = progress_bar
+        self.is_active = False
+
+    def start(self, message: str = "Working..."):
+        """Start progress indication."""
+        self.progress_var.set(message)
+        self.progress_bar.pack(side=tk.RIGHT, padx=(10, 0))
+        self.progress_bar.start()
+        self.is_active = True
+
+    def stop(self, message: str = "Ready"):
+        """Stop progress indication."""
+        self.progress_bar.stop()
+        self.progress_bar.pack_forget()
+        self.progress_var.set(message)
+        self.is_active = False
+
+    def run_background_task(
+        self,
+        task_func: Callable,
+        on_success: Callable = None,
+        on_error: Callable = None,
+        start_message: str = "Working...",
+    ):
+        """Run a task in background with progress indication."""
+
+        def wrapper():
+            try:
+                result = task_func()
+                if on_success and hasattr(self, "_root_after"):
+                    self._root_after(0, lambda: on_success(result))
+            except Exception as e:
+                if on_error and hasattr(self, "_root_after"):
+                    self._root_after(0, lambda: on_error(e))
+            finally:
+                if hasattr(self, "_root_after"):
+                    self._root_after(0, self.stop)
+
+        self.start(start_message)
+        threading.Thread(target=wrapper, daemon=True).start()
+
+    def set_root_after(self, root_after_func):
+        """Set the root.after function for UI updates."""
+        self._root_after = root_after_func
+
+
+class DialogHelper:
+    """Helper for creating consistent dialogs and message boxes."""
+
+    @staticmethod
+    def show_error(title: str, message: str):
+        """Show error dialog."""
+        messagebox.showerror(title, message)
+
+    @staticmethod
+    def show_warning(title: str, message: str):
+        """Show warning dialog."""
+        messagebox.showwarning(title, message)
+
+    @staticmethod
+    def show_info(title: str, message: str):
+        """Show info dialog."""
+        messagebox.showinfo(title, message)
+
+    @staticmethod
+    def ask_yes_no(title: str, message: str) -> bool:
+        """Ask yes/no question."""
+        return messagebox.askyesno(title, message)
+
+    @staticmethod
+    def open_file_dialog(
+        title: str, filetypes: List[Tuple[str, str]], defaultextension: str = None
+    ) -> Optional[str]:
+        """Open file selection dialog."""
+        kwargs = {"title": title, "filetypes": filetypes}
+        if defaultextension:
+            kwargs["defaultextension"] = defaultextension
+        return filedialog.askopenfilename(**kwargs)
+
+    @staticmethod
+    def save_file_dialog(
+        title: str, filetypes: List[Tuple[str, str]], defaultextension: str = None
+    ) -> Optional[str]:
+        """Open file save dialog."""
+        kwargs = {"title": title, "filetypes": filetypes}
+        if defaultextension:
+            kwargs["defaultextension"] = defaultextension
+        return filedialog.asksaveasfilename(**kwargs)
+
+
+class ValidationHelper:
+    """Helper for common validation checks."""
+
+    @staticmethod
+    def validate_data_loaded(
+        word_counts: Optional[Counter], show_error: bool = True
+    ) -> bool:
+        """Check if data is loaded."""
+        if not word_counts:
+            if show_error:
+                DialogHelper.show_warning("No Data", "Please load a text file first.")
+            return False
+        return True
+
+    @staticmethod
+    def validate_pattern_exists(pattern: List[str], show_error: bool = True) -> bool:
+        """Check if pattern exists."""
+        if not pattern:
+            if show_error:
+                DialogHelper.show_warning(
+                    "No Pattern", "Please create a pattern first."
+                )
+            return False
+        return True
+
+    @staticmethod
+    def validate_fingerprint_exists(
+        fingerprint: Optional[List], show_error: bool = True
+    ) -> bool:
+        """Check if fingerprint exists."""
+        if not fingerprint:
+            if show_error:
+                DialogHelper.show_warning(
+                    "No Fingerprint", "Generate a fingerprint first."
+                )
+            return False
+        return True
+
+
+class PatternManager:
+    """Manages pattern operations and UI updates."""
+
+    def __init__(self, pattern_display_callback: Callable):
+        self.current_pattern: List[str] = FINGERPRINT_CONFIG["default_pattern"].copy()
+        self.update_display = pattern_display_callback
+
+    def add_element(self, element: str):
+        """Add an element to the pattern."""
+        self.current_pattern.append(element)
+        self.update_display()
+
+    def remove_element(self, index: int):
+        """Remove an element from the pattern."""
+        if 0 <= index < len(self.current_pattern):
+            self.current_pattern.pop(index)
+            self.update_display()
+
+    def move_element(self, index: int, direction: int):
+        """Move an element up (-1) or down (1)."""
+        new_index = index + direction
+        if 0 <= new_index < len(self.current_pattern):
+            self.current_pattern[index], self.current_pattern[new_index] = (
+                self.current_pattern[new_index],
+                self.current_pattern[index],
+            )
+            self.update_display()
+
+    def edit_element(self, index: int, new_element: str):
+        """Edit an element in the pattern."""
+        if 0 <= index < len(self.current_pattern):
+            self.current_pattern[index] = new_element
+            self.update_display()
+
+    def clear(self):
+        """Clear the pattern."""
+        self.current_pattern = []
+        self.update_display()
+
+    def reset_to_default(self):
+        """Reset to default pattern."""
+        self.current_pattern = FINGERPRINT_CONFIG["default_pattern"].copy()
+        self.update_display()
+
+    def save_to_file(self, filepath: str):
+        """Save pattern to file."""
+        with open(filepath, "w") as f:
+            json.dump({"pattern": self.current_pattern}, f, indent=2)
+
+    def load_from_file(self, filepath: str):
+        """Load pattern from file."""
+        with open(filepath, "r") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                self.current_pattern = data
+            elif isinstance(data, dict) and "pattern" in data:
+                self.current_pattern = data["pattern"]
+            else:
+                raise ValueError("Invalid pattern file format")
+        self.update_display()
 
 
 class WordAnalyzerGUI:
@@ -36,19 +232,41 @@ class WordAnalyzerGUI:
         self.current_file: Optional[str] = None
         self.word_counts: Optional[Counter] = None
         self.current_fingerprint: Optional[List[Tuple[str, str, int]]] = None
-        self.current_pattern: List[str] = FINGERPRINT_CONFIG["default_pattern"].copy()
 
-        # GUI state
-        self.is_loading = False
-        self.cached_preview_image = None  # Cache full-size preview for saving
-        self.cached_preview_settings = None  # Cache settings used for preview
+        # Create progress handler (will be initialized in _create_main_interface)
+        self.progress_handler: Optional[ProgressHandler] = None
+
+        # Initialize pattern manager (callback will be set later)
+        self.pattern_manager = PatternManager(self._update_pattern_display)
+
+        # Visualization state
+        self.cached_preview_image = None
+        self.cached_preview_settings = None
+        self._background_image_path = None
 
         # Create GUI
         self._create_menu()
         self._create_main_interface()
+        self._initialize_helpers()
 
         # Load dictionaries in background
         self._load_dictionaries()
+
+    def _initialize_helpers(self):
+        """Initialize helper objects after UI creation."""
+        if self.progress_handler:
+            self.progress_handler.set_root_after(self.root.after)
+
+    @property
+    def current_pattern(self) -> List[str]:
+        """Get current pattern from pattern manager."""
+        return self.pattern_manager.current_pattern
+
+    @current_pattern.setter
+    def current_pattern(self, value: List[str]):
+        """Set current pattern in pattern manager."""
+        self.pattern_manager.current_pattern = value
+        self.pattern_manager.update_display()
 
     def _create_menu(self):
         """Create the menu bar."""
@@ -114,9 +332,12 @@ class WordAnalyzerGUI:
         )
 
         # Progress bar
-        self.progress_var = tk.StringVar(value="Ready")
-        self.progress_bar = ttk.Progressbar(file_frame, mode="indeterminate")
-        ttk.Label(file_frame, textvariable=self.progress_var).pack(side=tk.RIGHT)
+        progress_var = tk.StringVar(value="Ready")
+        progress_bar = ttk.Progressbar(file_frame, mode="indeterminate")
+        ttk.Label(file_frame, textvariable=progress_var).pack(side=tk.RIGHT)
+
+        # Initialize progress handler
+        self.progress_handler = ProgressHandler(progress_var, progress_bar)
 
         # Create notebook for tabs
         self.notebook = Notebook(self.root)
@@ -520,7 +741,7 @@ class WordAnalyzerGUI:
         length_constraint = self.add_length_var.get()
 
         if not word_type:
-            messagebox.showwarning("No Selection", "Please select a word type.")
+            DialogHelper.show_warning("No Selection", "Please select a word type.")
             return
 
         # Map length constraint display to prefix
@@ -537,7 +758,8 @@ class WordAnalyzerGUI:
         prefix = length_map.get(length_constraint, "")
         pattern_element = prefix + word_type
 
-        self._add_to_pattern(pattern_element)
+        self.pattern_manager.add_element(pattern_element)
+        self._auto_generate_fingerprint()
 
         # Reset dropdowns for next addition
         self.add_word_type_var.set("")
@@ -547,8 +769,7 @@ class WordAnalyzerGUI:
         """Create a simple tooltip for a widget."""
 
         def on_enter(event):
-            # You could implement a proper tooltip here
-            pass
+            pass  # Could implement proper tooltip here
 
         def on_leave(event):
             pass
@@ -612,16 +833,18 @@ class WordAnalyzerGUI:
 
     def _add_to_pattern(self, element: str):
         """Add an element to the current pattern."""
-        self.current_pattern.append(element)
-        self._update_pattern_display()
+        self.pattern_manager.add_element(element)
         self._auto_generate_fingerprint()
 
     def _remove_pattern_element(self, index: int):
         """Remove an element from the pattern."""
-        if 0 <= index < len(self.current_pattern):
-            self.current_pattern.pop(index)
-            self._update_pattern_display()
-            self._auto_generate_fingerprint()
+        self.pattern_manager.remove_element(index)
+        self._auto_generate_fingerprint()
+
+    def _move_pattern_element(self, index: int, direction: int):
+        """Move an element up (-1) or down (1)."""
+        self.pattern_manager.move_element(index, direction)
+        self._auto_generate_fingerprint()
 
     def _edit_pattern_element(self, index: int):
         """Edit a pattern element using dropdown menus."""
@@ -635,15 +858,24 @@ class WordAnalyzerGUI:
 
         # Check for length prefixes
         length_prefixes = ["sh", "mm", "ml", "m", "ll", "l"]
-        for prefix in sorted(
-            length_prefixes, key=len, reverse=True
-        ):  # Check longer prefixes first
+        for prefix in sorted(length_prefixes, key=len, reverse=True):
             if current.startswith(prefix):
                 current_prefix = prefix
                 current_word_type = current[len(prefix) :]
                 break
 
         # Create edit dialog
+        dialog = self._create_pattern_edit_dialog(current_word_type, current_prefix)
+
+        if dialog["result"]:
+            new_element = dialog["length_prefix"] + dialog["word_type"]
+            self.pattern_manager.edit_element(index, new_element)
+            self._auto_generate_fingerprint()
+
+    def _create_pattern_edit_dialog(
+        self, current_word_type: str, current_prefix: str
+    ) -> Dict[str, Any]:
+        """Create a pattern edit dialog and return the result."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Edit Pattern Element")
         dialog.geometry("400x250")
@@ -700,7 +932,7 @@ class WordAnalyzerGUI:
                 length_combo.current(i)
                 break
 
-        result = {"cancelled": True}
+        result = {"result": False, "word_type": "", "length_prefix": ""}
 
         def on_ok():
             word_type = word_type_var.get()
@@ -713,9 +945,9 @@ class WordAnalyzerGUI:
                     length_prefix = value
                     break
 
-            new_element = length_prefix + word_type
-            self.current_pattern[index] = new_element
-            result["cancelled"] = False
+            result.update(
+                {"result": True, "word_type": word_type, "length_prefix": length_prefix}
+            )
             dialog.destroy()
 
         def on_cancel():
@@ -731,21 +963,16 @@ class WordAnalyzerGUI:
 
         # Wait for dialog to close
         dialog.wait_window()
-
-        if not result["cancelled"]:
-            self._update_pattern_display()
-            self._auto_generate_fingerprint()
+        return result
 
     def _clear_pattern(self):
         """Clear the current pattern."""
-        self.current_pattern = []
-        self._update_pattern_display()
+        self.pattern_manager.clear()
         self._auto_generate_fingerprint()
 
     def _reset_pattern(self):
         """Reset to default pattern."""
-        self.current_pattern = FINGERPRINT_CONFIG["default_pattern"].copy()
-        self._update_pattern_display()
+        self.pattern_manager.reset_to_default()
         self._auto_generate_fingerprint()
 
     def _set_canvas_size(self, width: int, height: int):
@@ -766,30 +993,25 @@ class WordAnalyzerGUI:
             var.set(False)
 
     def _load_dictionaries(self):
-        """Load dictionaries in background."""
+        """Load dictionaries in background using the progress handler."""
 
-        def load():
-            try:
-                self.progress_var.set("Loading dictionaries...")
-                self.progress_bar.pack(side=tk.RIGHT, padx=(10, 0))
-                self.progress_bar.start()
+        def load_task():
+            self.dict_manager.load_dictionaries()
+            return True
 
-                self.dict_manager.load_dictionaries()
+        def on_success(result):
+            pass  # Dictionaries loaded successfully
 
-                self.progress_bar.stop()
-                self.progress_bar.pack_forget()
-                self.progress_var.set("Ready")
-            except Exception as e:
-                self.progress_bar.stop()
-                self.progress_bar.pack_forget()
-                self.progress_var.set("Error loading dictionaries")
-                messagebox.showerror("Error", f"Failed to load dictionaries: {e}")
+        def on_error(error):
+            DialogHelper.show_error("Error", f"Failed to load dictionaries: {error}")
 
-        threading.Thread(target=load, daemon=True).start()
+        self.progress_handler.run_background_task(
+            load_task, on_success, on_error, "Loading dictionaries..."
+        )
 
     def _load_file(self):
         """Load a text file for analysis."""
-        if file_path := filedialog.askopenfilename(
+        if file_path := DialogHelper.open_file_dialog(
             title="Select text file",
             filetypes=[
                 ("All supported", "*.txt *.pdf *.docx"),
@@ -807,35 +1029,28 @@ class WordAnalyzerGUI:
         if os.path.exists(example_path):
             self._load_and_analyze_file(example_path)
         else:
-            messagebox.showwarning(
+            DialogHelper.show_warning(
                 "Example Not Found",
                 "The example file 'texts/placeholder.txt' was not found.",
             )
 
     def _load_and_analyze_file(self, file_path: str):
-        """Load and analyze a file in the background."""
+        """Load and analyze a file in the background using progress handler."""
 
-        def analyze():
-            try:
-                self.is_loading = True
-                self.progress_var.set("Analyzing file...")
-                self.progress_bar.pack(side=tk.RIGHT, padx=(10, 0))
-                self.progress_bar.start()
+        def analyze_task():
+            return self.analyzer.analyze_text(file_path)
 
-                # Analyze the file
-                self.word_counts = self.analyzer.analyze_text(file_path)
-                self.current_file = file_path
+        def on_success(word_counts):
+            self.word_counts = word_counts
+            self.current_file = file_path
+            self._on_file_loaded(file_path)
 
-                # Update UI
-                self.root.after(0, lambda: self._on_file_loaded(file_path))
+        def on_error(error):
+            self._on_file_error(str(error))
 
-            except Exception as e:
-                self.root.after(0, lambda: self._on_file_error(str(e)))
-            finally:
-                self.is_loading = False
-                self.root.after(0, self._loading_finished)
-
-        threading.Thread(target=analyze, daemon=True).start()
+        self.progress_handler.run_background_task(
+            analyze_task, on_success, on_error, "Analyzing file..."
+        )
 
     def _on_file_loaded(self, file_path: str):
         """Called when file loading is complete."""
@@ -854,7 +1069,7 @@ class WordAnalyzerGUI:
         # Auto-generate fingerprint if pattern exists
         self._auto_generate_fingerprint()
 
-        messagebox.showinfo(
+        DialogHelper.show_info(
             "File Loaded",
             f"Successfully analyzed {filename}\n{word_count:,} total words\n{unique_count:,} unique words",
         )
@@ -862,22 +1077,19 @@ class WordAnalyzerGUI:
     def _on_file_error(self, error_msg: str):
         """Called when file loading fails."""
         self.file_var.set("Failed to load file")
-        messagebox.showerror("Error", f"Failed to load file: {error_msg}")
+        DialogHelper.show_error("Error", f"Failed to load file: {error_msg}")
 
-    def _loading_finished(self):
-        """Clean up loading UI."""
-        self.progress_bar.stop()
-        self.progress_bar.pack_forget()
-        self.progress_var.set("Ready")
+    def _auto_generate_fingerprint(self):
+        """Automatically generate fingerprint when pattern changes."""
+        if self.word_counts and self.current_pattern:
+            with contextlib.suppress(Exception):
+                self._generate_fingerprint()
 
     def _generate_fingerprint(self):
         """Generate a fingerprint from the current pattern."""
-        if not self.word_counts:
-            messagebox.showwarning("No Data", "Please load a text file first.")
+        if not ValidationHelper.validate_data_loaded(self.word_counts):
             return
-
-        if not self.current_pattern:
-            messagebox.showwarning("No Pattern", "Please create a pattern first.")
+        if not ValidationHelper.validate_pattern_exists(self.current_pattern):
             return
 
         try:
@@ -887,55 +1099,192 @@ class WordAnalyzerGUI:
             )
 
             # Update display
-            words = [item[1] for item in self.current_fingerprint]
-            sentence = " ".join(words) + "."
-            self.sentence_var.set(sentence)
-
-            # Update detailed results
-            self.results_text.delete(1.0, tk.END)
-
-            if author := self.author_var.get().strip():
-                self.results_text.insert(tk.END, f"Fingerprinting {author}...\n\n")
-
-            self.results_text.insert(tk.END, f"Fingerprint: {sentence}\n\n")
-
-            # Add detailed table
-            if self.current_fingerprint:
-                max_len = max(len(item[1]) for item in self.current_fingerprint)
-
-                # Headers
-                self.results_text.insert(tk.END, "                       Words: ")
-                self.results_text.insert(
-                    tk.END,
-                    " | ".join(
-                        f"{item[1]:<{max_len}}" for item in self.current_fingerprint
-                    ),
-                )
-                self.results_text.insert(tk.END, "\n")
-
-                self.results_text.insert(tk.END, "Number of times word appears: ")
-                self.results_text.insert(
-                    tk.END,
-                    " | ".join(
-                        f"{item[2]:<{max_len}}" for item in self.current_fingerprint
-                    ),
-                )
-                self.results_text.insert(tk.END, "\n\n")
-
-                # Pattern details
-                self.results_text.insert(tk.END, "Pattern Details:\n")
-                for i, (pattern, word, count) in enumerate(self.current_fingerprint):
-                    self.results_text.insert(
-                        tk.END,
-                        f"{i+1:2d}. {pattern:15s} → {word:15s} (appears {count} times)\n",
-                    )
+            self._update_fingerprint_display()
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to generate fingerprint: {e}")
+            DialogHelper.show_error("Error", f"Failed to generate fingerprint: {e}")
+
+    def _update_fingerprint_display(self):
+        """Update the fingerprint display with current results."""
+        if not self.current_fingerprint:
+            return
+
+        words = [item[1] for item in self.current_fingerprint]
+        sentence = " ".join(words) + "."
+        self.sentence_var.set(sentence)
+
+        # Update detailed results
+        self.results_text.delete(1.0, tk.END)
+
+        if author := self.author_var.get().strip():
+            self.results_text.insert(tk.END, f"Fingerprinting {author}...\n\n")
+
+        self.results_text.insert(tk.END, f"Fingerprint: {sentence}\n\n")
+
+        # Add detailed table
+        if self.current_fingerprint:
+            max_len = max(len(item[1]) for item in self.current_fingerprint)
+
+            # Headers
+            self.results_text.insert(tk.END, "                       Words: ")
+            self.results_text.insert(
+                tk.END,
+                " | ".join(
+                    f"{item[1]:<{max_len}}" for item in self.current_fingerprint
+                ),
+            )
+            self.results_text.insert(tk.END, "\n")
+
+            self.results_text.insert(tk.END, "Number of times word appears: ")
+            self.results_text.insert(
+                tk.END,
+                " | ".join(
+                    f"{item[2]:<{max_len}}" for item in self.current_fingerprint
+                ),
+            )
+            self.results_text.insert(tk.END, "\n\n")
+
+            # Pattern details
+            self.results_text.insert(tk.END, "Pattern Details:\n")
+            for i, (pattern, word, count) in enumerate(self.current_fingerprint):
+                self.results_text.insert(
+                    tk.END,
+                    f"{i+1:2d}. {pattern:15s} → {word:15s} (appears {count} times)\n",
+                )
+
+    def _show_dict_stats(self):
+        """Show dictionary statistics."""
+        try:
+            stats = self.dict_manager.get_statistics()
+            self._create_stats_window(stats)
+        except Exception as e:
+            DialogHelper.show_error(
+                "Error", f"Failed to get dictionary statistics: {e}"
+            )
+
+    def _create_stats_window(self, stats: Dict[str, int]):
+        """Create and show the dictionary statistics window."""
+        stats_window = tk.Toplevel(self.root)
+        stats_window.title("Dictionary Statistics")
+        stats_window.geometry("400x500")
+
+        text_widget = scrolledtext.ScrolledText(stats_window, wrap=tk.WORD)
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        text_widget.insert(tk.END, "Dictionary Statistics\n")
+        text_widget.insert(tk.END, "=" * 30 + "\n\n")
+
+        for word_type, count in sorted(stats.items()):
+            text_widget.insert(tk.END, f"{word_type:15s}: {count:6,d} words\n")
+
+        text_widget.insert(tk.END, "\n" + "-" * 30 + "\n")
+        text_widget.insert(tk.END, f"{'Total':15s}: {sum(stats.values()):6,d} words\n")
+
+        text_widget.config(state=tk.DISABLED)
+
+    def _clean_dictionaries(self):
+        """Clean dictionaries (remove duplicates)."""
+        if not DialogHelper.ask_yes_no(
+            "Clean Dictionaries",
+            "This will remove duplicate entries from the dictionaries. Continue?",
+        ):
+            return
+
+        try:
+            removed = self.dict_manager.remove_duplicates()
+            self.dict_manager.save_dictionaries()
+
+            result_text = "Dictionary cleaning complete:\n\n"
+            for word_type, count in removed.items():
+                if count > 0:
+                    result_text += f"Removed {count} duplicates from {word_type}\n"
+
+            if not any(removed.values()):
+                result_text += "No duplicates found."
+
+            DialogHelper.show_info("Success", result_text)
+        except Exception as e:
+            DialogHelper.show_error("Error", f"Failed to clean dictionaries: {e}")
+
+    def _compare_fingerprints(self):
+        """Compare two fingerprints."""
+        if not ValidationHelper.validate_fingerprint_exists(self.current_fingerprint):
+            return
+
+        if file_path := DialogHelper.open_file_dialog(
+            title="Select fingerprint to compare with",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        ):
+            try:
+                other_fingerprint = self.analyzer.load_fingerprint(file_path)
+                similarity = self.analyzer.compare_fingerprints(
+                    self.current_fingerprint, other_fingerprint
+                )
+
+                self._show_comparison_results(other_fingerprint, similarity)
+
+            except Exception as e:
+                DialogHelper.show_error("Error", f"Failed to compare fingerprints: {e}")
+
+    def _show_comparison_results(
+        self, other_fingerprint: List[Tuple[str, str, int]], similarity: float
+    ):
+        """Show fingerprint comparison results in a new window."""
+        result_window = tk.Toplevel(self.root)
+        result_window.title("Fingerprint Comparison")
+        result_window.geometry("600x400")
+
+        text_widget = scrolledtext.ScrolledText(result_window, wrap=tk.WORD)
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        text_widget.insert(tk.END, "Fingerprint Comparison Results\n")
+        text_widget.insert(tk.END, "=" * 40 + "\n\n")
+
+        text_widget.insert(
+            tk.END,
+            f"Current fingerprint: {' '.join(item[1] for item in self.current_fingerprint)}.\n",
+        )
+        text_widget.insert(
+            tk.END,
+            f"Loaded fingerprint: {' '.join(item[1] for item in other_fingerprint)}.\n\n",
+        )
+
+        text_widget.insert(tk.END, f"Similarity: {similarity:.2%}\n")
+        text_widget.config(state=tk.DISABLED)
+
+    def _show_about(self):
+        """Show about dialog."""
+        about_text = """Word Analyzer GUI v1.0
+
+A comprehensive tool for linguistic fingerprinting and word visualization.
+
+Features:
+• Linguistic fingerprint generation
+• Advanced bubble chart visualizations
+• Image-based boundary detection
+• Color sampling from images
+• Pattern creation and editing
+• File format support: PDF, TXT, DOCX
+
+Created for advanced text analysis and visualization.
+"""
+        DialogHelper.show_info("About Word Analyzer", about_text)
+
+    def _create_tooltip(self, widget, text):
+        """Create a simple tooltip for a widget."""
+
+        def on_enter(event):
+            pass  # Could implement proper tooltip here
+
+        def on_leave(event):
+            pass
+
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
 
     def _load_background_image(self):
         """Load a background image for visualization."""
-        if file_path := filedialog.askopenfilename(
+        if file_path := DialogHelper.open_file_dialog(
             title="Select background image",
             filetypes=[
                 (
@@ -965,8 +1314,7 @@ class WordAnalyzerGUI:
 
     def _generate_preview(self):
         """Generate a preview of the visualization."""
-        if not self.word_counts:
-            messagebox.showwarning("No Data", "Please load a text file first.")
+        if not ValidationHelper.validate_data_loaded(self.word_counts):
             return
 
         # Show progress indication
@@ -982,79 +1330,29 @@ class WordAnalyzerGUI:
         )
         self.root.update()
 
-        def generate():
-            try:
-                # Get current settings
-                current_settings = {
-                    "width": int(self.width_var.get()),
-                    "height": int(self.height_var.get()),
-                    "background_image": getattr(self, "_background_image_path", None),
-                    "use_boundaries": self.use_boundaries_var.get(),
-                    "use_image_colors": self.use_image_colors_var.get(),
-                    "show_background": self.show_background_var.get(),
-                    "gradient_mode": self.gradient_mode_var.get(),
-                    "excluded_types": [
-                        word_type
-                        for word_type, var in self.exclude_vars.items()
-                        if var.get()
-                    ],
-                    "word_counts_hash": hash(
-                        frozenset(self.word_counts.items())
-                        if self.word_counts
-                        else frozenset()
-                    ),
-                }
+        def generate_task():
+            # Get current settings and generate visualization
+            current_settings = self._get_visualization_settings()
 
-                # Check if we can use cached preview
-                if (
-                    self.cached_preview_image is not None
-                    and self.cached_preview_settings == current_settings
-                    and os.path.exists(self.cached_preview_image)
-                ):
-                    self.root.after(0, lambda: self._show_preview_from_cache())
-                    return
+            # Check if we can use cached preview
+            if self._can_use_cached_preview(current_settings):
+                return {"use_cached": True}
 
-                # Generate full-size visualization
-                background_image = current_settings["background_image"]
-                use_boundaries = current_settings["use_boundaries"] and background_image
-                use_image_colors = (
-                    current_settings["use_image_colors"] and background_image
-                )
-                show_background = current_settings["show_background"]
-                gradient_mode = current_settings["gradient_mode"]
-                excluded_types = current_settings["excluded_types"]
+            # Generate new preview
+            return self._create_new_preview(current_settings)
 
-                # Create full-size visualizer
-                visualizer = BubbleVisualizer(
-                    width=current_settings["width"],
-                    height=current_settings["height"],
-                    background_image_path=background_image,
-                    use_boundaries=use_boundaries,
-                    show_background=show_background,
-                )
+        def on_success(result):
+            if result.get("use_cached"):
+                self._show_preview_from_cache()
+            else:
+                self._show_preview(result["preview_path"])
 
-                # Generate full-size image
-                preview_path = "temp_preview_full.png"
-                visualizer.create_bubble_chart(
-                    word_counts=self.word_counts,
-                    dict_manager=self.dict_manager,
-                    output_path=preview_path,
-                    exclude_types=excluded_types or None,
-                    use_image_colors=use_image_colors,
-                    gradient_mode=gradient_mode,
-                )
+        def on_error(error):
+            self._preview_error(str(error))
 
-                # Cache the full-size image
-                self.cached_preview_image = preview_path
-                self.cached_preview_settings = current_settings
-
-                # Update UI
-                self.root.after(0, lambda: self._show_preview(preview_path))
-
-            except Exception as e:
-                self.root.after(0, lambda: self._preview_error(str(e)))
-
-        threading.Thread(target=generate, daemon=True).start()
+        self.progress_handler.run_background_task(
+            generate_task, on_success, on_error, "Generating preview..."
+        )
 
     def _show_preview(self, preview_path: str):
         """Show the generated preview (scaled from full-size image) in a 16:9 optimized layout."""
@@ -1125,376 +1423,143 @@ class WordAnalyzerGUI:
 
     def _save_visualization(self):
         """Save the final visualization."""
-        if not self.word_counts:
-            messagebox.showwarning("No Data", "Please load a text file first.")
+        if not ValidationHelper.validate_data_loaded(self.word_counts):
             return
 
-        # Check if we have a cached preview that matches current settings
-        current_settings = {
-            "width": int(self.width_var.get()),
-            "height": int(self.height_var.get()),
-            "background_image": getattr(self, "_background_image_path", None),
-            "use_boundaries": self.use_boundaries_var.get(),
-            "use_image_colors": self.use_image_colors_var.get(),
-            "show_background": self.show_background_var.get(),
-            "gradient_mode": self.gradient_mode_var.get(),
-            "excluded_types": [
-                word_type for word_type, var in self.exclude_vars.items() if var.get()
-            ],
-            "word_counts_hash": hash(
-                frozenset(self.word_counts.items()) if self.word_counts else frozenset()
-            ),
-        }
-
         # Get output file
-        output_path = filedialog.asksaveasfilename(
+        output_path = DialogHelper.save_file_dialog(
             title="Save visualization",
-            defaultextension=".png",
             filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+            defaultextension=".png",
         )
 
         if not output_path:
             return
 
-        # If we have a cached preview with matching settings, use it
-        if (
-            self.cached_preview_image is not None
-            and self.cached_preview_settings == current_settings
-            and os.path.exists(self.cached_preview_image)
-        ):
+        current_settings = self._get_visualization_settings()
 
+        # If we have a cached preview with matching settings, use it
+        if self._can_use_cached_preview(current_settings):
             with contextlib.suppress(Exception):
-                # Copy cached image to output location
                 import shutil
 
                 shutil.copy2(self.cached_preview_image, output_path)
 
-                # Create legend if requested
                 if self.create_legend_var.get():
-                    # Generate legend separately since it's quick
-                    excluded_types = current_settings["excluded_types"]
-                    background_image = current_settings["background_image"]
-                    use_boundaries = (
-                        current_settings["use_boundaries"] and background_image
-                    )
-                    show_background = current_settings["show_background"]
-
-                    visualizer = BubbleVisualizer(
-                        width=current_settings["width"],
-                        height=current_settings["height"],
-                        background_image_path=background_image,
-                        use_boundaries=use_boundaries,
-                        show_background=show_background,
-                    )
-
-                    legend_path = f"{os.path.splitext(output_path)[0]}_legend.png"
-                    visualizer.create_legend(
-                        legend_path,
-                        exclude_types=excluded_types or None,
-                    )
+                    self._create_legend_file(output_path, current_settings)
 
                 self._visualization_complete(output_path)
                 return
 
         # Generate new visualization
-        self.progress_var.set("Generating visualization...")
-        self.progress_bar.pack(side=tk.RIGHT, padx=(10, 0))
-        self.progress_bar.start()
+        def generate_task():
+            return self._create_new_visualization(output_path, current_settings)
 
-        def generate():
-            try:
-                background_image = current_settings["background_image"]
-                use_boundaries = current_settings["use_boundaries"] and background_image
-                use_image_colors = (
-                    current_settings["use_image_colors"] and background_image
-                )
-                show_background = current_settings["show_background"]
-                gradient_mode = current_settings["gradient_mode"]
-                excluded_types = current_settings["excluded_types"]
+        def on_success(result):
+            self._visualization_complete(output_path)
 
-                # Create visualizer
-                visualizer = BubbleVisualizer(
-                    width=current_settings["width"],
-                    height=current_settings["height"],
-                    background_image_path=background_image,
-                    use_boundaries=use_boundaries,
-                    show_background=show_background,
-                )
+        def on_error(error):
+            self._visualization_error(str(error))
 
-                # Save debug images if requested
-                if self.debug_images_var.get() and background_image:
-                    debug_dir = f"{os.path.splitext(output_path)[0]}_debug"
-                    os.makedirs(debug_dir, exist_ok=True)
-                    visualizer.save_debug_images(debug_dir)
-
-                # Generate visualization
-                visualizer.create_bubble_chart(
-                    word_counts=self.word_counts,
-                    dict_manager=self.dict_manager,
-                    output_path=output_path,
-                    exclude_types=excluded_types or None,
-                    use_image_colors=use_image_colors,
-                    gradient_mode=gradient_mode,
-                )
-
-                # Update cache
-                self.cached_preview_image = "temp_preview_full.png"
-                self.cached_preview_settings = current_settings
-                if os.path.exists(output_path):
-                    import shutil
-
-                    shutil.copy2(output_path, self.cached_preview_image)
-
-                # Create legend if requested
-                if self.create_legend_var.get():
-                    legend_path = f"{os.path.splitext(output_path)[0]}_legend.png"
-                    visualizer.create_legend(
-                        legend_path,
-                        exclude_types=excluded_types or None,
-                    )
-
-                self.root.after(0, lambda: self._visualization_complete(output_path))
-
-            except Exception as e:
-                self.root.after(0, lambda: self._visualization_error(str(e)))
-            finally:
-                self.root.after(0, self._loading_finished)
-
-        threading.Thread(target=generate, daemon=True).start()
+        self.progress_handler.run_background_task(
+            generate_task, on_success, on_error, "Generating visualization..."
+        )
 
     def _visualization_complete(self, output_path: str):
         """Called when visualization generation is complete."""
         legend_info = " and legend" if self.create_legend_var.get() else ""
         debug_info = " (debug images saved)" if self.debug_images_var.get() else ""
-        messagebox.showinfo(
+        DialogHelper.show_info(
             "Success",
             f"Visualization{legend_info} saved to:\n{output_path}{debug_info}",
         )
 
     def _visualization_error(self, error_msg: str):
         """Handle visualization generation errors."""
-        messagebox.showerror("Error", f"Failed to generate visualization: {error_msg}")
+        DialogHelper.show_error(
+            "Error", f"Failed to generate visualization: {error_msg}"
+        )
 
     # Menu action methods
     def _save_fingerprint(self):
         """Save the current fingerprint."""
-        if not self.current_fingerprint:
-            messagebox.showwarning("No Fingerprint", "Generate a fingerprint first.")
+        if not ValidationHelper.validate_fingerprint_exists(self.current_fingerprint):
             return
 
-        if file_path := filedialog.asksaveasfilename(
+        if file_path := DialogHelper.save_file_dialog(
             title="Save fingerprint",
-            defaultextension=".txt",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            defaultextension=".txt",
         ):
             try:
                 self.analyzer.save_fingerprint(file_path, self.current_fingerprint)
-                messagebox.showinfo("Success", f"Fingerprint saved to: {file_path}")
+                DialogHelper.show_info("Success", f"Fingerprint saved to: {file_path}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to save fingerprint: {e}")
+                DialogHelper.show_error("Error", f"Failed to save fingerprint: {e}")
 
     def _load_fingerprint(self):
         """Load a fingerprint from file."""
-        if file_path := filedialog.askopenfilename(
+        if file_path := DialogHelper.open_file_dialog(
             title="Load fingerprint",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
         ):
             try:
                 fingerprint = self.analyzer.load_fingerprint(file_path)
                 self.current_fingerprint = fingerprint
-
-                # Update display
-                words = [item[1] for item in fingerprint]
-                sentence = " ".join(words) + "."
-                self.sentence_var.set(sentence)
-
-                # Update results
-                self.results_text.delete(1.0, tk.END)
-                self.results_text.insert(tk.END, f"Loaded fingerprint: {sentence}\n\n")
-
-                for i, (pattern, word, count) in enumerate(fingerprint):
-                    self.results_text.insert(
-                        tk.END,
-                        f"{i+1:2d}. {pattern:15s} → {word:15s} (count: {count})\n",
-                    )
-
-                messagebox.showinfo("Success", f"Fingerprint loaded from: {file_path}")
+                self._update_fingerprint_display()
+                DialogHelper.show_info(
+                    "Success", f"Fingerprint loaded from: {file_path}"
+                )
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to load fingerprint: {e}")
+                DialogHelper.show_error("Error", f"Failed to load fingerprint: {e}")
 
     def _save_pattern(self):
         """Save the current pattern."""
-        if not self.current_pattern:
-            messagebox.showwarning("No Pattern", "Create a pattern first.")
+        if not ValidationHelper.validate_pattern_exists(self.current_pattern):
             return
 
-        if file_path := filedialog.asksaveasfilename(
+        if file_path := DialogHelper.save_file_dialog(
             title="Save pattern",
-            defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            defaultextension=".json",
         ):
             try:
-                with open(file_path, "w") as f:
-                    json.dump({"pattern": self.current_pattern}, f, indent=2)
-                messagebox.showinfo("Success", f"Pattern saved to: {file_path}")
+                self.pattern_manager.save_to_file(file_path)
+                DialogHelper.show_info("Success", f"Pattern saved to: {file_path}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to save pattern: {e}")
+                DialogHelper.show_error("Error", f"Failed to save pattern: {e}")
 
     def _load_pattern(self):
         """Load a pattern from file."""
-        if file_path := filedialog.askopenfilename(
+        if file_path := DialogHelper.open_file_dialog(
             title="Load pattern",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
         ):
             try:
-                with open(file_path, "r") as f:
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        self.current_pattern = data
-                    elif isinstance(data, dict) and "pattern" in data:
-                        self.current_pattern = data["pattern"]
-                    else:
-                        raise ValueError("Invalid pattern file format")
-
-                self._update_pattern_display()
-                messagebox.showinfo("Success", f"Pattern loaded from: {file_path}")
+                self.pattern_manager.load_from_file(file_path)
+                DialogHelper.show_info("Success", f"Pattern loaded from: {file_path}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to load pattern: {e}")
-
-    def _show_dict_stats(self):
-        """Show dictionary statistics."""
-        try:
-            stats = self.dict_manager.get_statistics()
-
-            stats_window = tk.Toplevel(self.root)
-            stats_window.title("Dictionary Statistics")
-            stats_window.geometry("400x500")
-
-            text_widget = scrolledtext.ScrolledText(stats_window, wrap=tk.WORD)
-            text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-            text_widget.insert(tk.END, "Dictionary Statistics\n")
-            text_widget.insert(tk.END, "=" * 30 + "\n\n")
-
-            for word_type, count in sorted(stats.items()):
-                text_widget.insert(tk.END, f"{word_type:15s}: {count:6,d} words\n")
-
-            text_widget.insert(tk.END, "\n" + "-" * 30 + "\n")
-            text_widget.insert(
-                tk.END, f"{'Total':15s}: {sum(stats.values()):6,d} words\n"
-            )
-
-            text_widget.config(state=tk.DISABLED)
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to get dictionary statistics: {e}")
-
-    def _clean_dictionaries(self):
-        """Clean dictionaries (remove duplicates)."""
-        if messagebox.askyesno(
-            "Clean Dictionaries",
-            "This will remove duplicate entries from the dictionaries. Continue?",
-        ):
-            try:
-                removed = self.dict_manager.remove_duplicates()
-                self.dict_manager.save_dictionaries()
-
-                result_text = "Dictionary cleaning complete:\n\n"
-                for word_type, count in removed.items():
-                    if count > 0:
-                        result_text += f"Removed {count} duplicates from {word_type}\n"
-
-                if not any(removed.values()):
-                    result_text += "No duplicates found."
-
-                messagebox.showinfo("Success", result_text)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to clean dictionaries: {e}")
-
-    def _compare_fingerprints(self):
-        """Compare two fingerprints."""
-        if not self.current_fingerprint:
-            messagebox.showwarning(
-                "No Fingerprint", "Generate or load a fingerprint first."
-            )
-            return
-
-        if file_path := filedialog.askopenfilename(
-            title="Select fingerprint to compare with",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-        ):
-            try:
-                other_fingerprint = self.analyzer.load_fingerprint(file_path)
-                similarity = self.analyzer.compare_fingerprints(
-                    self.current_fingerprint, other_fingerprint
-                )
-
-                result_window = tk.Toplevel(self.root)
-                result_window.title("Fingerprint Comparison")
-                result_window.geometry("600x400")
-
-                text_widget = scrolledtext.ScrolledText(result_window, wrap=tk.WORD)
-                text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-                text_widget.insert(tk.END, "Fingerprint Comparison Results\n")
-                text_widget.insert(tk.END, "=" * 40 + "\n\n")
-
-                text_widget.insert(
-                    tk.END,
-                    f"Current fingerprint: {' '.join(item[1] for item in self.current_fingerprint)}.\n",
-                )
-                text_widget.insert(
-                    tk.END,
-                    f"Loaded fingerprint: {' '.join(item[1] for item in other_fingerprint)}.\n\n",
-                )
-
-                text_widget.insert(tk.END, f"Similarity: {similarity:.2%}\n")
-
-                text_widget.config(state=tk.DISABLED)
-
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to compare fingerprints: {e}")
-
-    def _show_about(self):
-        """Show about dialog."""
-        about_text = """Word Analyzer GUI v1.0
-
-A comprehensive tool for linguistic fingerprinting and word visualization.
-
-Features:
-• Linguistic fingerprint generation
-• Advanced bubble chart visualizations
-• Image-based boundary detection
-• Color sampling from images
-• Pattern creation and editing
-• File format support: PDF, TXT, DOCX
-
-Created for advanced text analysis and visualization.
-"""
-        messagebox.showinfo("About Word Analyzer", about_text)
-
-    def _auto_generate_fingerprint(self):
-        """Automatically generate fingerprint when pattern changes."""
-        if self.word_counts and self.current_pattern:
-            with contextlib.suppress(Exception):
-                self._generate_fingerprint()
+                DialogHelper.show_error("Error", f"Failed to load pattern: {e}")
 
     def _show_unknown_words(self):
         """Show unknown words that aren't in any dictionary."""
-        if not self.word_counts:
-            messagebox.showwarning("No Data", "Please load a text file first.")
+        if not ValidationHelper.validate_data_loaded(self.word_counts):
             return
 
         # Find unknown words
-        unknown_words = []
-        for word in self.word_counts.keys():
-            if self.dict_manager.get_word_type(word) is None:
-                unknown_words.append((word, self.word_counts[word]))
+        unknown_words = [
+            (word, self.word_counts[word])
+            for word in self.word_counts.keys()
+            if self.dict_manager.get_word_type(word) is None
+        ]
 
         # Sort by frequency (most common first)
         unknown_words.sort(key=lambda x: x[1], reverse=True)
 
-        # Create dialog window
+        self._create_unknown_words_dialog(unknown_words)
+
+    def _create_unknown_words_dialog(self, unknown_words: List[Tuple[str, int]]):
+        """Create and show the unknown words dialog."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Unknown Words")
         dialog.geometry("600x500")
@@ -1511,12 +1576,24 @@ Created for advanced text analysis and visualization.
         summary_text = f"Found {len(unknown_words)} unknown words out of {len(self.word_counts)} total unique words"
         ttk.Label(dialog, text=summary_text, font=("Arial", 12, "bold")).pack(pady=10)
 
-        # Create frame for word list and assignment
+        # Create main frame
         main_frame = ttk.Frame(dialog)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         # Word list with scrollbar
-        list_frame = ttk.Frame(main_frame)
+        self._create_unknown_words_list(main_frame, unknown_words)
+
+        # Assignment controls
+        self._create_word_assignment_controls(main_frame)
+
+        # Close button
+        ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=10)
+
+    def _create_unknown_words_list(
+        self, parent: ttk.Frame, unknown_words: List[Tuple[str, int]]
+    ):
+        """Create the unknown words list widget."""
+        list_frame = ttk.Frame(parent)
         list_frame.pack(fill=tk.BOTH, expand=True)
 
         # Treeview for word list
@@ -1547,8 +1624,9 @@ Created for advanced text analysis and visualization.
         for word, count in unknown_words:
             self.unknown_tree.insert("", "end", values=(word, count, "Unknown"))
 
-        # Assignment controls
-        assign_frame = ttk.Frame(main_frame)
+    def _create_word_assignment_controls(self, parent: ttk.Frame):
+        """Create word assignment controls."""
+        assign_frame = ttk.Frame(parent)
         assign_frame.pack(fill=tk.X, pady=(10, 0))
 
         ttk.Label(assign_frame, text="Assign selected word to category:").pack(
@@ -1569,7 +1647,7 @@ Created for advanced text analysis and visualization.
         def assign_word():
             selection = self.unknown_tree.selection()
             if not selection or not self.assign_var.get():
-                messagebox.showwarning(
+                DialogHelper.show_warning(
                     "No Selection", "Please select a word and choose a word type."
                 )
                 return
@@ -1581,26 +1659,158 @@ Created for advanced text analysis and visualization.
             # Add word to dictionary
             try:
                 self.dict_manager.add_word(word, word_type)
-                # Save dictionaries to files
                 self.dict_manager.save_dictionaries()
                 # Update display
                 self.unknown_tree.item(
                     item,
                     values=(word, self.unknown_tree.item(item, "values")[1], word_type),
                 )
-                messagebox.showinfo(
+                DialogHelper.show_info(
                     "Success",
                     f"Added '{word}' as {word_type} and saved to dictionary files",
                 )
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to add word: {e}")
+                DialogHelper.show_error("Error", f"Failed to add word: {e}")
 
         ttk.Button(assign_frame, text="Assign", command=assign_word).pack(
             side=tk.LEFT, padx=(5, 0)
         )
 
-        # Close button
-        ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=10)
+    def _get_visualization_settings(self) -> Dict[str, Any]:
+        """Get current visualization settings."""
+        return {
+            "width": int(self.width_var.get()),
+            "height": int(self.height_var.get()),
+            "background_image": getattr(self, "_background_image_path", None),
+            "use_boundaries": self.use_boundaries_var.get(),
+            "use_image_colors": self.use_image_colors_var.get(),
+            "show_background": self.show_background_var.get(),
+            "gradient_mode": self.gradient_mode_var.get(),
+            "excluded_types": [
+                word_type for word_type, var in self.exclude_vars.items() if var.get()
+            ],
+            "word_counts_hash": hash(
+                frozenset(self.word_counts.items()) if self.word_counts else frozenset()
+            ),
+        }
+
+    def _can_use_cached_preview(self, current_settings: Dict[str, Any]) -> bool:
+        """Check if cached preview can be used."""
+        return (
+            self.cached_preview_image is not None
+            and self.cached_preview_settings == current_settings
+            and os.path.exists(self.cached_preview_image)
+        )
+
+    def _create_new_preview(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new preview visualization."""
+        background_image = settings["background_image"]
+        use_boundaries = settings["use_boundaries"] and background_image
+        use_image_colors = settings["use_image_colors"] and background_image
+        show_background = settings["show_background"]
+        gradient_mode = settings["gradient_mode"]
+        excluded_types = settings["excluded_types"]
+
+        # Create full-size visualizer
+        visualizer = BubbleVisualizer(
+            width=settings["width"],
+            height=settings["height"],
+            background_image_path=background_image,
+            use_boundaries=use_boundaries,
+            show_background=show_background,
+        )
+
+        # Generate full-size image
+        preview_path = "temp_preview_full.png"
+        visualizer.create_bubble_chart(
+            word_counts=self.word_counts,
+            dict_manager=self.dict_manager,
+            output_path=preview_path,
+            exclude_types=excluded_types or None,
+            use_image_colors=use_image_colors,
+            gradient_mode=gradient_mode,
+        )
+
+        # Cache the full-size image
+        self.cached_preview_image = preview_path
+        self.cached_preview_settings = settings
+
+        return {"preview_path": preview_path}
+
+    def _create_new_visualization(
+        self, output_path: str, settings: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create a new visualization file."""
+        background_image = settings["background_image"]
+        use_boundaries = settings["use_boundaries"] and background_image
+        use_image_colors = settings["use_image_colors"] and background_image
+        show_background = settings["show_background"]
+        gradient_mode = settings["gradient_mode"]
+        excluded_types = settings["excluded_types"]
+
+        # Create visualizer
+        visualizer = BubbleVisualizer(
+            width=settings["width"],
+            height=settings["height"],
+            background_image_path=background_image,
+            use_boundaries=use_boundaries,
+            show_background=show_background,
+        )
+
+        # Save debug images if requested
+        if self.debug_images_var.get() and background_image:
+            debug_dir = f"{os.path.splitext(output_path)[0]}_debug"
+            os.makedirs(debug_dir, exist_ok=True)
+            visualizer.save_debug_images(debug_dir)
+
+        # Generate visualization
+        visualizer.create_bubble_chart(
+            word_counts=self.word_counts,
+            dict_manager=self.dict_manager,
+            output_path=output_path,
+            exclude_types=excluded_types or None,
+            use_image_colors=use_image_colors,
+            gradient_mode=gradient_mode,
+        )
+
+        # Update cache
+        self.cached_preview_image = "temp_preview_full.png"
+        self.cached_preview_settings = settings
+        if os.path.exists(output_path):
+            import shutil
+
+            shutil.copy2(output_path, self.cached_preview_image)
+
+        # Create legend if requested
+        if self.create_legend_var.get():
+            self._create_legend_file(output_path, settings)
+
+        return {"output_path": output_path}
+
+    def _create_legend_file(self, output_path: str, settings: Dict[str, Any]):
+        """Create a legend file for the visualization."""
+        excluded_types = settings["excluded_types"]
+        background_image = settings["background_image"]
+        use_boundaries = settings["use_boundaries"] and background_image
+        show_background = settings["show_background"]
+
+        visualizer = BubbleVisualizer(
+            width=settings["width"],
+            height=settings["height"],
+            background_image_path=background_image,
+            use_boundaries=use_boundaries,
+            show_background=show_background,
+        )
+
+        legend_path = f"{os.path.splitext(output_path)[0]}_legend.png"
+        visualizer.create_legend(
+            legend_path,
+            exclude_types=excluded_types or None,
+        )
+
+    def _preview_error(self, error_msg: str):
+        """Handle preview generation errors."""
+        self.preview_status_var.set(f"Error generating preview: {error_msg}")
 
 
 def main():
