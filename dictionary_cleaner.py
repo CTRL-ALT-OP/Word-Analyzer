@@ -28,18 +28,15 @@ class DictionaryCleaner:
             print("Loading dictionaries...")
         self.dict_manager.load_dictionaries()
 
-        stats = {
-            "duplicates_within": {},
-            "duplicates_across": {},
-            "case_normalized": {},
-            "invalid_removed": {},
-        }
-
         # Remove duplicates within each dictionary
         if verbose:
             print("\nRemoving duplicates within dictionaries...")
-        stats["duplicates_within"] = self.remove_duplicates_within()
-
+        stats = {
+            "duplicates_across": {},
+            "case_normalized": {},
+            "invalid_removed": {},
+            "duplicates_within": self.remove_duplicates_within(),
+        }
         # Remove cross-dictionary duplicates
         if verbose:
             print("\nRemoving cross-dictionary duplicates...")
@@ -64,7 +61,7 @@ class DictionaryCleaner:
         for word_type, words in self.dict_manager.dictionaries.items():
             original_count = len(words)
             # Convert to set and back to remove duplicates
-            unique_words = set(word.lower() for word in words)
+            unique_words = {word.lower() for word in words}
             self.dict_manager.dictionaries[word_type] = unique_words
             removed[word_type] = original_count - len(unique_words)
 
@@ -116,41 +113,37 @@ class DictionaryCleaner:
             for word in words:
                 word_locations[word].append(word_type)
 
-        conflicts = {
+        return {
             word: locations
             for word, locations in word_locations.items()
             if len(locations) > 1
         }
 
-        return conflicts
-
     def generate_report(
         self, stats: Dict[str, Dict[str, int]], save_path: str = None
     ) -> str:
         """Generate a cleaning report."""
-        report_lines = ["Dictionary Cleaning Report", "=" * 50, ""]
-
         # Summary statistics
         total_stats = defaultdict(int)
         for operation, counts in stats.items():
             for word_type, count in counts.items():
                 total_stats[operation] += count
 
-        report_lines.extend(
-            [
+        report_lines = [
+            "Dictionary Cleaning Report",
+            "=" * 50,
+            "",
+            *[
                 "Summary:",
                 f"  Total duplicates within dictionaries: {total_stats['duplicates_within']}",
                 f"  Total cross-dictionary duplicates: {total_stats['duplicates_across']}",
                 f"  Total case normalizations: {total_stats['case_normalized']}",
                 f"  Total invalid words removed: {total_stats['invalid_removed']}",
                 "",
-            ]
-        )
-
-        # Detailed statistics
-        report_lines.append("Detailed Statistics by Word Type:")
-        report_lines.append("-" * 50)
-
+            ],
+            "Detailed Statistics by Word Type:",
+            "-" * 50,
+        ]
         for word_type in self.dict_manager.word_types:
             report_lines.append(f"\n{word_type}:")
             for operation, counts in stats.items():
@@ -162,12 +155,13 @@ class DictionaryCleaner:
         report_lines.extend(["", "Final Dictionary Sizes:", "-" * 50])
 
         final_stats = self.dict_manager.get_statistics()
-        for word_type, count in sorted(final_stats.items()):
-            report_lines.append(f"{word_type:10s}: {count:6d} words")
-
-        report_lines.append("-" * 50)
-        report_lines.append(f"{'Total':10s}: {sum(final_stats.values()):6d} words")
-
+        report_lines.extend(
+            f"{word_type:10s}: {count:6d} words"
+            for word_type, count in sorted(final_stats.items())
+        )
+        report_lines.extend(
+            ("-" * 50, f"{'Total':10s}: {sum(final_stats.values()):6d} words")
+        )
         report = "\n".join(report_lines)
 
         if save_path:
@@ -250,8 +244,7 @@ def main():
             print("Done!")
 
     if args.find_conflicts:
-        conflicts = cleaner.find_conflicts()
-        if conflicts:
+        if conflicts := cleaner.find_conflicts():
             print("\nWords appearing in multiple dictionaries:")
             print("-" * 50)
             for word, locations in sorted(conflicts.items()):

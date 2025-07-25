@@ -1111,6 +1111,22 @@ class BubbleVisualizer:
             # Create gradient background
             gradient_background = self._create_gradient_background(positioned_bubbles)
             image = Image.fromarray(gradient_background)
+
+            # Show background image if requested in gradient mode
+            if (
+                self.background_image_path
+                and self.background_image is not None
+                and self.show_background
+            ):
+                # Convert background image to PIL format
+                background_rgb = cv2.cvtColor(self.background_image, cv2.COLOR_BGR2RGB)
+                bg_pil = Image.fromarray(background_rgb)
+
+                # Blend the background image with the gradient
+                image = Image.blend(
+                    bg_pil, image, alpha=0.7
+                )  # 70% gradient, 30% background
+
             draw = ImageDraw.Draw(image)
 
             # Draw text labels over the gradient (no circle outlines)
