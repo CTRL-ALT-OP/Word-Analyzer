@@ -1,6 +1,18 @@
 """
 Improved comprehensive test suite for BubbleVisualizer with 4K canvas and placeholder.txt dataset.
 All tests use 4K canvas and the placeholder.txt dataset with proper word counting algorithm.
+Updated for refactored component-based architecture.
+
+REFACTORING NOTES:
+- BubbleVisualizer now uses component-based architecture with separate classes:
+  * ImageProcessor: Handles image processing and boundary detection
+  * ColorManager: Manages color schemes and image color sampling
+  * BubbleLayoutEngine: Handles bubble positioning and collision detection
+  * FontManager: Manages font loading and text sizing
+  * BubbleRenderer: Handles drawing and image creation
+- Tests updated to work with new component structure
+- New component-specific tests added to validate individual components
+- Backward compatibility maintained for public API
 """
 
 import pytest
@@ -17,7 +29,14 @@ import numpy as np
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from bubble_visualizer import BubbleVisualizer
+from bubble_visualizer import (
+    BubbleVisualizer,
+    ImageProcessor,
+    ColorManager,
+    BubbleLayoutEngine,
+    FontManager,
+    BubbleRenderer,
+)
 from word_analysis import WordAnalyzer
 from dictionary_manager import DictionaryManager
 from text_extractor import TextExtractorFactory
@@ -67,9 +86,16 @@ class TestBubbleVisualizerInitialization:
         visualizer = BubbleVisualizer()
         assert visualizer.width == 3840, "Default width should be 4K (3840)"
         assert visualizer.height == 2160, "Default height should be 4K (2160)"
+
+        # Test component initialization
         assert (
-            visualizer.bubbles == []
-        ), "Bubbles list should be empty on initialization"
+            visualizer.color_manager is not None
+        ), "ColorManager should be initialized"
+        assert (
+            visualizer.layout_engine is not None
+        ), "BubbleLayoutEngine should be initialized"
+        assert visualizer.font_manager is not None, "FontManager should be initialized"
+        assert visualizer.renderer is not None, "BubbleRenderer should be initialized"
 
     def test_custom_dimensions_initialization(self):
         """Test initialization with custom dimensions."""
@@ -77,17 +103,25 @@ class TestBubbleVisualizerInitialization:
         visualizer = BubbleVisualizer(width=width, height=height)
         assert visualizer.width == width
         assert visualizer.height == height
-        assert visualizer.bubbles == []
+
+        # Test that components are initialized with custom dimensions
+        assert visualizer.layout_engine.width == width
+        assert visualizer.layout_engine.height == height
+        assert visualizer.renderer.width == width
+        assert visualizer.renderer.height == height
 
     def test_word_type_colors_defined(self):
         """Test that word type colors are properly defined for distinct coloring."""
         visualizer = BubbleVisualizer()
-        assert hasattr(visualizer, "WORD_TYPE_COLORS")
-        assert isinstance(visualizer.WORD_TYPE_COLORS, dict)
-        assert len(visualizer.WORD_TYPE_COLORS) >= 15  # Should have many word types
+        # Colors are now in the ColorManager component
+        assert hasattr(visualizer.color_manager, "WORD_TYPE_COLORS")
+        assert isinstance(visualizer.color_manager.WORD_TYPE_COLORS, dict)
+        assert (
+            len(visualizer.color_manager.WORD_TYPE_COLORS) >= 15
+        )  # Should have many word types
 
         # Check that all colors are valid hex codes
-        for word_type, color in visualizer.WORD_TYPE_COLORS.items():
+        for word_type, color in visualizer.color_manager.WORD_TYPE_COLORS.items():
             assert color.startswith("#"), f"Color for {word_type} should start with #"
             assert len(color) == 7, f"Color for {word_type} should be #RRGGBB format"
 
@@ -105,6 +139,38 @@ class TestBubbleVisualizerInitialization:
         assert "noun" in word_types
         assert "verb" in word_types
         assert "adj" in word_types
+
+    def test_image_processor_initialization_with_background(self):
+        """Test ImageProcessor initialization when background image is provided."""
+        # Mock the image file existence and loading
+        with patch("bubble_visualizer.cv2.imread") as mock_imread, patch(
+            "bubble_visualizer.OPENCV_AVAILABLE", True
+        ):
+
+            mock_imread.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
+
+            visualizer = BubbleVisualizer(background_image_path="test.jpg")
+
+            # Should have initialized ImageProcessor
+            assert visualizer.image_processor is not None
+            assert visualizer.image_processor.width == 3840
+            assert visualizer.image_processor.height == 2160
+
+    def test_component_integration(self):
+        """Test that all components are properly integrated."""
+        visualizer = BubbleVisualizer()
+
+        # Test ColorManager integration
+        assert visualizer.color_manager.image_processor is None  # No background image
+
+        # Test LayoutEngine integration
+        assert visualizer.layout_engine.image_processor is None  # No background image
+
+        # Test FontManager standalone
+        assert isinstance(visualizer.font_manager._font_cache, dict)
+
+        # Test Renderer integration
+        assert visualizer.renderer.font_manager is visualizer.font_manager
 
 
 @pytest.mark.quality
@@ -128,9 +194,9 @@ class TestBubbleVisualizerSpaceUtilization:
             pass
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            # Patch the _create_image method to capture bubbles
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            # Patch the renderer's create_image method to capture bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -174,8 +240,8 @@ class TestBubbleVisualizerSpaceUtilization:
             positioned_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -231,8 +297,8 @@ class TestBubbleVisualizerBubbleCount:
             positioned_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -266,8 +332,8 @@ class TestBubbleVisualizerBubbleCount:
             positioned_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -339,8 +405,8 @@ class TestBubbleVisualizerImageProperties:
             positioned_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -401,8 +467,8 @@ class TestBubbleVisualizerQualityAssurance:
             positioned_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -442,8 +508,8 @@ class TestBubbleVisualizerQualityAssurance:
             positioned_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -509,8 +575,8 @@ class TestBubbleVisualizerQualityAssurance:
             positioned_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_positioned_bubbles
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -590,13 +656,21 @@ class TestBubbleVisualizerGradientMode:
         normal_background = None
         positioned_bubbles = []
 
-        def capture_gradient_background(bubbles, output_path, gradient_mode=False):
+        def capture_gradient_background(
+            bubbles,
+            output_path,
+            gradient_mode=False,
+            show_background=False,
+            color_manager=None,
+        ):
             nonlocal gradient_background, normal_background, positioned_bubbles
             positioned_bubbles = bubbles[:]
             if gradient_mode:
                 # Capture gradient background generation
-                gradient_background = bubble_visualizer_4k._create_gradient_background(
-                    bubbles
+                gradient_background = (
+                    bubble_visualizer_4k.color_manager.create_gradient_background(
+                        bubbles, bubble_visualizer_4k.width, bubble_visualizer_4k.height
+                    )
                 )
             else:
                 # For normal mode, create a white background equivalent
@@ -607,8 +681,8 @@ class TestBubbleVisualizerGradientMode:
                 )
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_gradient_background
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_gradient_background
 
             # First, create normal mode chart
             bubble_visualizer_4k.create_bubble_chart(
@@ -659,17 +733,25 @@ class TestBubbleVisualizerGradientMode:
         gradient_background = None
         positioned_bubbles = []
 
-        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+        def capture_gradient_data(
+            bubbles,
+            output_path,
+            gradient_mode=False,
+            show_background=False,
+            color_manager=None,
+        ):
             nonlocal gradient_background, positioned_bubbles
             if gradient_mode:
                 positioned_bubbles = bubbles[:]
-                gradient_background = bubble_visualizer_4k._create_gradient_background(
-                    bubbles
+                gradient_background = (
+                    bubble_visualizer_4k.color_manager.create_gradient_background(
+                        bubbles, bubble_visualizer_4k.width, bubble_visualizer_4k.height
+                    )
                 )
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_gradient_data
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_gradient_data
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -729,17 +811,25 @@ class TestBubbleVisualizerGradientMode:
         gradient_background = None
         positioned_bubbles = []
 
-        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+        def capture_gradient_data(
+            bubbles,
+            output_path,
+            gradient_mode=False,
+            show_background=False,
+            color_manager=None,
+        ):
             nonlocal gradient_background, positioned_bubbles
             if gradient_mode:
                 positioned_bubbles = bubbles[:]
-                gradient_background = bubble_visualizer_4k._create_gradient_background(
-                    bubbles
+                gradient_background = (
+                    bubble_visualizer_4k.color_manager.create_gradient_background(
+                        bubbles, bubble_visualizer_4k.width, bubble_visualizer_4k.height
+                    )
                 )
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_gradient_data
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_gradient_data
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -851,17 +941,25 @@ class TestBubbleVisualizerGradientMode:
         gradient_background = None
         positioned_bubbles = []
 
-        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+        def capture_gradient_data(
+            bubbles,
+            output_path,
+            gradient_mode=False,
+            show_background=False,
+            color_manager=None,
+        ):
             nonlocal gradient_background, positioned_bubbles
             if gradient_mode:
                 positioned_bubbles = bubbles[:]
-                gradient_background = bubble_visualizer_4k._create_gradient_background(
-                    bubbles
+                gradient_background = (
+                    bubble_visualizer_4k.color_manager.create_gradient_background(
+                        bubbles, bubble_visualizer_4k.width, bubble_visualizer_4k.height
+                    )
                 )
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_gradient_data
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_gradient_data
 
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -956,16 +1054,24 @@ class TestBubbleVisualizerGradientMode:
         """Test gradient mode with edge cases like single bubble or empty dataset."""
         gradient_background = None
 
-        def capture_gradient_data(bubbles, output_path, gradient_mode=False):
+        def capture_gradient_data(
+            bubbles,
+            output_path,
+            gradient_mode=False,
+            show_background=False,
+            color_manager=None,
+        ):
             nonlocal gradient_background
             if gradient_mode:
-                gradient_background = bubble_visualizer_4k._create_gradient_background(
-                    bubbles
+                gradient_background = (
+                    bubble_visualizer_4k.color_manager.create_gradient_background(
+                        bubbles, bubble_visualizer_4k.width, bubble_visualizer_4k.height
+                    )
                 )
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = bubble_visualizer_4k._create_image
-            bubble_visualizer_4k._create_image = capture_gradient_data
+            original_create_image = bubble_visualizer_4k.renderer.create_image
+            bubble_visualizer_4k.renderer.create_image = capture_gradient_data
 
             # Test with single word
             single_word = Counter({"test": 100})
@@ -1015,19 +1121,31 @@ class TestBubbleVisualizerGradientMode:
         normal_bubbles = []
         gradient_bubbles = []
 
-        def capture_normal_bubbles(bubbles, output_path, gradient_mode=False):
+        def capture_normal_bubbles(
+            bubbles,
+            output_path,
+            gradient_mode=False,
+            show_background=False,
+            color_manager=None,
+        ):
             nonlocal normal_bubbles
             if not gradient_mode:
                 normal_bubbles = bubbles[:]
 
-        def capture_gradient_bubbles(bubbles, output_path, gradient_mode=False):
+        def capture_gradient_bubbles(
+            bubbles,
+            output_path,
+            gradient_mode=False,
+            show_background=False,
+            color_manager=None,
+        ):
             nonlocal gradient_bubbles
             if gradient_mode:
                 gradient_bubbles = bubbles[:]
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
             # Create normal mode chart
-            bubble_visualizer_4k._create_image = capture_normal_bubbles
+            bubble_visualizer_4k.renderer.create_image = capture_normal_bubbles
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
                 dict_manager=real_dict_manager,
@@ -1036,7 +1154,7 @@ class TestBubbleVisualizerGradientMode:
             )
 
             # Create gradient mode chart
-            bubble_visualizer_4k._create_image = capture_gradient_bubbles
+            bubble_visualizer_4k.renderer.create_image = capture_gradient_bubbles
             bubble_visualizer_4k.create_bubble_chart(
                 word_counts=placeholder_dataset,
                 dict_manager=real_dict_manager,
@@ -1373,6 +1491,232 @@ class TestBubbleVisualizerCLI:
         assert (
             "word types" in result.stdout.lower()
         ), "Should show word types information"
+
+
+@pytest.mark.unit
+class TestBubbleVisualizerComponents:
+    """Test individual components of the refactored BubbleVisualizer."""
+
+    def test_image_processor_standalone(self):
+        """Test ImageProcessor component in isolation."""
+        processor = ImageProcessor(1920, 1080)
+        assert processor.width == 1920
+        assert processor.height == 1080
+        assert processor.background_image is None
+        assert processor.boundary_mask is None
+        assert processor.valid_positions is None
+
+    def test_color_manager_standalone(self):
+        """Test ColorManager component in isolation."""
+        color_manager = ColorManager()
+
+        # Test color retrieval
+        color = color_manager.get_word_type_color("noun")
+        assert color.startswith("#")
+        assert len(color) == 7
+
+        # Test unknown type
+        unknown_color = color_manager.get_word_type_color("unknown_type")
+        assert unknown_color == color_manager.WORD_TYPE_COLORS["unknown"]
+
+    def test_bubble_layout_engine_standalone(self):
+        """Test BubbleLayoutEngine component in isolation."""
+        engine = BubbleLayoutEngine(1920, 1080)
+        assert engine.width == 1920
+        assert engine.height == 1080
+
+        # Test position validation (no image processor)
+        assert engine.is_position_valid(100, 100, 50)
+        assert not engine.is_position_valid(10, 10, 50)  # Too close to edge
+
+    def test_font_manager_standalone(self):
+        """Test FontManager component in isolation."""
+        font_manager = FontManager()
+
+        # Test font caching
+        font1 = font_manager.get_font(12)
+        font2 = font_manager.get_font(12)
+        # Should be cached (same object)
+        assert font1 is font2
+
+        # Test different sizes
+        font_large = font_manager.get_font(24)
+        assert font_large is not font1
+
+    def test_bubble_renderer_standalone(self):
+        """Test BubbleRenderer component in isolation."""
+        font_manager = FontManager()
+        renderer = BubbleRenderer(1920, 1080, font_manager)
+
+        assert renderer.width == 1920
+        assert renderer.height == 1080
+        assert renderer.font_manager is font_manager
+
+    def test_component_integration_with_image(self):
+        """Test component integration when background image is used."""
+        with patch("bubble_visualizer.cv2.imread") as mock_imread, patch(
+            "bubble_visualizer.OPENCV_AVAILABLE", True
+        ):
+
+            mock_imread.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
+
+            visualizer = BubbleVisualizer(background_image_path="test.jpg")
+
+            # Test that components are properly connected
+            assert visualizer.image_processor is not None
+            assert (
+                visualizer.color_manager.image_processor is visualizer.image_processor
+            )
+            assert (
+                visualizer.layout_engine.image_processor is visualizer.image_processor
+            )
+
+    def test_bubble_size_calculation_component(self, real_dict_manager):
+        """Test bubble size calculation using the layout engine."""
+        engine = BubbleLayoutEngine(1920, 1080)
+
+        word_data = [
+            ("test1", 100, "noun", "#FF0000"),
+            ("test2", 50, "verb", "#00FF00"),
+            ("test3", 25, "adj", "#0000FF"),
+        ]
+
+        bubble_data = engine.calculate_bubble_sizes(word_data)
+
+        # Should have same number of results
+        assert len(bubble_data) == 3
+
+        # Should have radius as 5th element
+        for bubble in bubble_data:
+            assert len(bubble) == 5
+            assert isinstance(bubble[4], int)  # radius
+            assert bubble[4] > 0
+
+        # Higher frequency should generally have larger radius
+        radii = [bubble[4] for bubble in bubble_data]
+        # Most frequent should have largest radius
+        assert radii[0] >= radii[1] >= radii[2]
+
+    def test_color_sampling_component(self):
+        """Test color sampling from ColorManager."""
+        # Create a mock image processor with a simple image
+        width, height = 100, 100
+        image_processor = ImageProcessor(width, height)
+        image_processor.background_image = np.full(
+            (height, width, 3), [128, 64, 192], dtype=np.uint8
+        )
+
+        color_manager = ColorManager(image_processor)
+
+        # Sample color from the image
+        color = color_manager.sample_color_from_image(50, 50, 10)
+
+        # Should return a hex color based on the BGR image
+        assert color.startswith("#")
+        assert len(color) == 7
+
+        # Should be based on the image color (BGR [128, 64, 192] -> RGB [192, 64, 128])
+        expected_r = 192  # Was B in BGR
+        expected_g = 64  # Was G in BGR
+        expected_b = 128  # Was R in BGR
+        expected_color = f"#{expected_r:02x}{expected_g:02x}{expected_b:02x}"
+        assert color == expected_color
+
+    def test_layout_engine_collision_detection(self):
+        """Test collision detection in BubbleLayoutEngine."""
+        engine = BubbleLayoutEngine(1000, 1000)
+
+        # Create positioned bubbles list
+        positioned_bubbles = [
+            (
+                "word1",
+                100,
+                "noun",
+                "#FF0000",
+                50,
+                100,
+                100,
+            ),  # radius=50, center=(100,100)
+            (
+                "word2",
+                80,
+                "verb",
+                "#00FF00",
+                40,
+                300,
+                300,
+            ),  # radius=40, center=(300,300)
+        ]
+
+        # Test no overlap - far apart
+        assert not engine.check_overlap(500, 500, 30, positioned_bubbles)
+
+        # Test overlap - too close to first bubble
+        assert engine.check_overlap(
+            120, 120, 30, positioned_bubbles
+        )  # Would overlap with first
+
+        # Test edge case - just touching (should not overlap)
+        distance_to_first = 50 + 25 + 2  # radius1 + radius2 + padding
+        assert not engine.check_overlap(
+            100 + distance_to_first, 100, 25, positioned_bubbles
+        )
+
+
+@pytest.mark.quality
+class TestBubbleVisualizerRefactoredQuality:
+    """Test that refactored version maintains quality."""
+
+    def test_refactored_produces_same_bubble_count(
+        self,
+        bubble_visualizer_4k,
+        placeholder_dataset,
+        real_dict_manager,
+        temp_output_file,
+    ):
+        """Test that refactored version produces similar bubble counts as before."""
+        positioned_bubbles = []
+
+        def capture_positioned_bubbles(bubbles, *args, **kwargs):
+            nonlocal positioned_bubbles
+            positioned_bubbles = bubbles[:]
+
+        with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
+            bubble_visualizer_4k.renderer.create_image = capture_positioned_bubbles
+
+            bubble_visualizer_4k.create_bubble_chart(
+                word_counts=placeholder_dataset,
+                dict_manager=real_dict_manager,
+                output_path=temp_output_file,
+            )
+
+        # Should place reasonable number of bubbles
+        assert (
+            len(positioned_bubbles) >= 300
+        ), f"Should place at least 300 bubbles, got {len(positioned_bubbles)}"
+
+        print(f"Refactored version placed {len(positioned_bubbles)} bubbles")
+
+    def test_component_error_handling(self):
+        """Test that components handle errors gracefully."""
+        # Test ColorManager with no image processor
+        color_manager = ColorManager()
+        color = color_manager.sample_color_from_image(50, 50, 10)
+        assert color == color_manager.WORD_TYPE_COLORS["unknown"]
+
+        # Test BubbleLayoutEngine with empty data
+        engine = BubbleLayoutEngine(1000, 1000)
+        result = engine.calculate_bubble_sizes([])
+        assert result == []
+
+        # Test FontManager with invalid size
+        font_manager = FontManager()
+        try:
+            font = font_manager.get_font(0)
+            # Should either return None/default or raise exception gracefully
+        except ValueError:
+            # PIL raises ValueError for font size <= 0, which is expected
+            pass
 
 
 if __name__ == "__main__":

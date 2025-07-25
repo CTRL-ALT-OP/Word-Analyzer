@@ -208,12 +208,12 @@ class TestBackgroundImageCLI:
         )
 
         # Store the boundary mask for validation
-        boundary_mask = visualizer.boundary_mask
+        boundary_mask = visualizer.image_processor.boundary_mask
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            # Patch the _create_image method to capture bubbles
-            original_create_image = visualizer._create_image
-            visualizer._create_image = capture_positioned_bubbles
+            # Patch the renderer's create_image method to capture bubbles
+            original_create_image = visualizer.renderer.create_image
+            visualizer.renderer.create_image = capture_positioned_bubbles
 
             visualizer.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -268,12 +268,12 @@ class TestBackgroundImageCLI:
             show_background=False,
         )
 
-        boundary_mask = visualizer.boundary_mask
+        boundary_mask = visualizer.image_processor.boundary_mask
         total_valid_area = np.sum(boundary_mask > 0)
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = visualizer._create_image
-            visualizer._create_image = capture_positioned_bubbles
+            original_create_image = visualizer.renderer.create_image
+            visualizer.renderer.create_image = capture_positioned_bubbles
 
             visualizer.create_bubble_chart(
                 word_counts=placeholder_dataset,
@@ -320,8 +320,8 @@ class TestBackgroundImageCLI:
         )
 
         with patch("bubble_visualizer.Image"), patch("bubble_visualizer.ImageDraw"):
-            original_create_image = visualizer._create_image
-            visualizer._create_image = capture_positioned_bubbles
+            original_create_image = visualizer.renderer.create_image
+            visualizer.renderer.create_image = capture_positioned_bubbles
 
             visualizer.create_bubble_chart(
                 word_counts=placeholder_dataset,
