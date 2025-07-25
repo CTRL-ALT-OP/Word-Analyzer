@@ -94,10 +94,10 @@ class OptimizedGeminiWordCategorizer:
             if not api_key:
                 raise ValueError("API key file is empty")
             return api_key
-        except FileNotFoundError:
-            raise FileNotFoundError(f"API key file not found: {api_key_file}")
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"API key file not found: {api_key_file}") from e
         except Exception as e:
-            raise RuntimeError(f"Error loading API key: {e}")
+            raise RuntimeError(f"Error loading API key: {e}") from e
 
     def _validate_api_key(self) -> None:
         """Validate that the API key works with a simple test call."""
@@ -108,7 +108,7 @@ class OptimizedGeminiWordCategorizer:
         except Exception as e:
             print(f"ERROR: API key validation failed: {e}")
             if "API key" in str(e).lower() or "authentication" in str(e).lower():
-                raise RuntimeError(f"API key is invalid or expired: {e}")
+                raise RuntimeError(f"API key is invalid or expired: {e}") from e
             else:
                 print(
                     "Warning: API validation failed but continuing (might be temporary)"
