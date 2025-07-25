@@ -57,8 +57,8 @@ class ProgressHandler:
                 if on_success and hasattr(self, "_root_after"):
                     self._root_after(0, lambda: on_success(result))
             except Exception as e:
-                if on_error and hasattr(self, "_root_after"):
-                    self._root_after(0, lambda: on_error(e))
+                if on_error:
+                    on_error(e)
             finally:
                 if hasattr(self, "_root_after"):
                     self._root_after(0, self.stop)
@@ -364,23 +364,12 @@ class WordAnalyzerGUI:
         pattern_group = ttk.LabelFrame(left_frame, text="Pattern Builder", padding=10)
         pattern_group.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
 
-        # Available word types
-        available_frame = ttk.Frame(pattern_group)
-        available_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # Create scrollable frame for word types
-        available_scroll = tk.Frame(available_frame)
-        available_scroll.pack(fill=tk.X, pady=5)
-
-        self.available_canvas = tk.Canvas(available_scroll, height=200)
-
-        self.available_canvas.pack(side="left", fill="both", expand=True)
-
-        # Add word type selection
-        main_frame = self.available_canvas
+        # Add word type selection - create a proper frame instead of using canvas
+        controls_frame = ttk.Frame(pattern_group)
+        controls_frame.pack(fill=tk.X, pady=5)
 
         # Horizontal frame for dropdowns and button
-        dropdown_frame = ttk.Frame(main_frame)
+        dropdown_frame = ttk.Frame(controls_frame)
         dropdown_frame.pack()
 
         # Word type dropdown
@@ -393,6 +382,11 @@ class WordAnalyzerGUI:
             width=10,
         )
         self.add_word_type_combo.pack(side=tk.LEFT)
+
+        # Bind to remove focus outline after selection
+        self.add_word_type_combo.bind(
+            "<<ComboboxSelected>>", self._on_combobox_selected
+        )
 
         # Length constraint dropdown
         self.add_length_var = tk.StringVar()
@@ -415,22 +409,27 @@ class WordAnalyzerGUI:
         self.add_length_combo.pack(side=tk.LEFT)
         self.add_length_combo.current(0)  # Default to "No constraint"
 
+        # Bind to remove focus outline after selection
+        self.add_length_combo.bind("<<ComboboxSelected>>", self._on_combobox_selected)
+
         # Add button
         ttk.Button(dropdown_frame, text="Add", command=self._add_from_dropdowns).pack(
             side=tk.LEFT
         )
 
         # Separator
-        ttk.Separator(main_frame, orient="horizontal").pack(fill=tk.X, pady=(10, 10))
+        ttk.Separator(controls_frame, orient="horizontal").pack(
+            fill=tk.X, pady=(10, 10)
+        )
 
         # Word type reference
         ttk.Label(
-            main_frame, text="Word Type Reference:", font=("Arial", 10, "bold")
+            controls_frame, text="Word Type Reference:", font=("Arial", 10, "bold")
         ).pack(anchor=tk.W, pady=(0, 5))
 
         # Word type descriptions with examples
         descriptions = {
-            "conj": "Conjunction (and, but, or, so)",
+            "conj": "Conjunction (and, but, or)",
             "art": "Article (a, an, the)",
             "adj": "Adjective (big, red, beautiful)",
             "adv": "Adverb (quickly, very, well)",
@@ -449,7 +448,7 @@ class WordAnalyzerGUI:
         }
 
         # Create reference frame with scrolling
-        ref_frame = tk.Frame(main_frame)
+        ref_frame = tk.Frame(controls_frame)
         ref_frame.pack(fill=tk.BOTH, expand=True)
 
         ref_canvas = tk.Canvas(ref_frame, height=150)
@@ -465,6 +464,23 @@ class WordAnalyzerGUI:
 
         ref_canvas.create_window((0, 0), window=ref_content, anchor="nw")
         ref_canvas.configure(yscrollcommand=ref_scrollbar.set)
+
+        # Add mouse wheel scrolling support
+        def _on_ref_mousewheel(event):
+            ref_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        # Bind mouse wheel directly to canvas and content
+        ref_canvas.bind("<MouseWheel>", _on_ref_mousewheel)
+        ref_content.bind("<MouseWheel>", _on_ref_mousewheel)
+
+        # Also bind to all child widgets for better scroll coverage
+        def bind_to_mousewheel(widget):
+            widget.bind("<MouseWheel>", _on_ref_mousewheel)
+            for child in widget.winfo_children():
+                bind_to_mousewheel(child)
+
+        # Need to bind after widgets are created, so we'll do it in update_idletasks
+        ref_canvas.after_idle(lambda: bind_to_mousewheel(ref_content))
 
         ref_canvas.pack(side="left", fill="both", expand=True)
         ref_scrollbar.pack(side="right", fill="y")
@@ -500,6 +516,17 @@ class WordAnalyzerGUI:
             (0, 0), window=self.pattern_scrollable_frame, anchor="nw"
         )
         self.pattern_canvas.configure(yscrollcommand=pattern_scrollbar.set)
+
+        # Add mouse wheel scrolling support for pattern canvas
+        def _on_pattern_mousewheel(event):
+            self.pattern_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        # Bind mouse wheel directly to pattern canvas and scrollable frame
+        self.pattern_canvas.bind("<MouseWheel>", _on_pattern_mousewheel)
+        self.pattern_scrollable_frame.bind("<MouseWheel>", _on_pattern_mousewheel)
+
+        # Store the mousewheel handler for later use when pattern elements are created
+        self._pattern_mousewheel_handler = _on_pattern_mousewheel
 
         self.pattern_canvas.pack(side="left", fill="both", expand=True)
         pattern_scrollbar.pack(side="right", fill="y")
@@ -616,10 +643,10 @@ class WordAnalyzerGUI:
         ).pack(side=tk.RIGHT, padx=(0, 5))
 
         # Background options
-        self.use_boundaries_var = tk.BooleanVar(value=True)
+        self.use_boundaries_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             bg_group,
-            text="Use image boundaries for bubble placement",
+            text="Use image boundaries for bubble placement (very slow)",
             variable=self.use_boundaries_var,
         ).pack(anchor=tk.W)
 
@@ -735,6 +762,21 @@ class WordAnalyzerGUI:
             self.preview_group, textvariable=self.preview_status_var, foreground="gray"
         ).pack(pady=10)
 
+    def _on_combobox_selected(self, event):
+        """Handle combobox selection to remove focus outline."""
+        # Use after_idle to ensure the selection is processed first, then clear focus
+        self.root.after_idle(lambda: self._clear_combobox_focus(event.widget))
+
+    def _clear_combobox_focus(self, widget):
+        """Clear combobox focus to prevent outline on parent frame."""
+        try:
+            # Clear the selection highlight and transfer focus to root
+            widget.selection_clear()
+            self.root.focus_set()
+        except tk.TclError:
+            # Widget might be destroyed, ignore
+            pass
+
     def _add_from_dropdowns(self):
         """Add a word type to pattern from dropdown selections."""
         word_type = self.add_word_type_var.get()
@@ -784,11 +826,14 @@ class WordAnalyzerGUI:
             widget.destroy()
 
         if not self.current_pattern:
-            ttk.Label(
+            empty_label = ttk.Label(
                 self.pattern_scrollable_frame,
                 text="Empty pattern - add word types from above",
                 foreground="gray",
-            ).pack(pady=20)
+            )
+            empty_label.pack(pady=20)
+            if hasattr(self, "_pattern_mousewheel_handler"):
+                empty_label.bind("<MouseWheel>", self._pattern_mousewheel_handler)
             return
 
         # Create draggable pattern elements
@@ -796,8 +841,15 @@ class WordAnalyzerGUI:
             element_frame = ttk.Frame(self.pattern_scrollable_frame)
             element_frame.pack(fill=tk.X, padx=5, pady=2)
 
+            # Bind mouse wheel to the element frame
+            if hasattr(self, "_pattern_mousewheel_handler"):
+                element_frame.bind("<MouseWheel>", self._pattern_mousewheel_handler)
+
             # Position label
-            ttk.Label(element_frame, text=f"{i+1}:", width=3).pack(side=tk.LEFT)
+            pos_label = ttk.Label(element_frame, text=f"{i+1}:", width=3)
+            pos_label.pack(side=tk.LEFT)
+            if hasattr(self, "_pattern_mousewheel_handler"):
+                pos_label.bind("<MouseWheel>", self._pattern_mousewheel_handler)
 
             # Element button
             element_btn = ttk.Button(
@@ -806,30 +858,42 @@ class WordAnalyzerGUI:
                 command=lambda idx=i: self._edit_pattern_element(idx),
             )
             element_btn.pack(side=tk.LEFT, padx=5)
+            if hasattr(self, "_pattern_mousewheel_handler"):
+                element_btn.bind("<MouseWheel>", self._pattern_mousewheel_handler)
 
             # Move buttons
             if i > 0:
-                ttk.Button(
+                up_btn = ttk.Button(
                     element_frame,
                     text="↑",
                     width=3,
                     command=lambda idx=i: self._move_pattern_element(idx, -1),
-                ).pack(side=tk.RIGHT)
+                )
+                up_btn.pack(side=tk.RIGHT)
+                if hasattr(self, "_pattern_mousewheel_handler"):
+                    up_btn.bind("<MouseWheel>", self._pattern_mousewheel_handler)
+
             if i < len(self.current_pattern) - 1:
-                ttk.Button(
+                down_btn = ttk.Button(
                     element_frame,
                     text="↓",
                     width=3,
                     command=lambda idx=i: self._move_pattern_element(idx, 1),
-                ).pack(side=tk.RIGHT)
+                )
+                down_btn.pack(side=tk.RIGHT)
+                if hasattr(self, "_pattern_mousewheel_handler"):
+                    down_btn.bind("<MouseWheel>", self._pattern_mousewheel_handler)
 
             # Remove button
-            ttk.Button(
+            remove_btn = ttk.Button(
                 element_frame,
                 text="×",
                 width=3,
                 command=lambda idx=i: self._remove_pattern_element(idx),
-            ).pack(side=tk.RIGHT, padx=(5, 0))
+            )
+            remove_btn.pack(side=tk.RIGHT, padx=(5, 0))
+            if hasattr(self, "_pattern_mousewheel_handler"):
+                remove_btn.bind("<MouseWheel>", self._pattern_mousewheel_handler)
 
     def _add_to_pattern(self, element: str):
         """Add an element to the current pattern."""
@@ -901,6 +965,7 @@ class WordAnalyzerGUI:
             width=30,
         )
         word_type_combo.pack(pady=5)
+        word_type_combo.bind("<<ComboboxSelected>>", lambda e: dialog.focus())
 
         # Length constraint dropdown
         ttk.Label(dialog, text="Length Constraint:", font=("Arial", 10, "bold")).pack(
@@ -925,6 +990,7 @@ class WordAnalyzerGUI:
             width=30,
         )
         length_combo.pack(pady=5)
+        length_combo.bind("<<ComboboxSelected>>", lambda e: dialog.focus())
 
         # Set initial length selection
         for i, (display, value) in enumerate(length_options):
@@ -1643,6 +1709,7 @@ Created for advanced text analysis and visualization.
             width=15,
         )
         assign_combo.pack(side=tk.LEFT, padx=(5, 0))
+        assign_combo.bind("<<ComboboxSelected>>", lambda e: self.root.focus())
 
         def assign_word():
             selection = self.unknown_tree.selection()
